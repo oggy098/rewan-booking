@@ -1,0 +1,19 @@
+# Rewan Booking (WordPress Plugin) — Cursor / AI Regeln
+
+## Admin-UI (Rewan Booking Backend)
+
+- Alle eigenen WP-Admin-Seiten nutzen die Body-Klasse **`rewan-booking-admin`** (nur bei `admin.php?page=rewan-booking…`).
+- Zentrales Stylesheet: **`assets/css/rewan-booking-admin.css`** — per `admin_enqueue_scripts` eingebunden. **Keine** großen Kalender-Styles mehr inline in PHP; neue Admin-Oberflächen dort ergänzen oder sinnvoll kapseln.
+- **Design-Tokens** stehen auf `body.rewan-booking-admin` (`--rb-s0`, `--rb-ink`, `--rb-g2` Gold, `--rb-sh1`, `--rb-r`, …). Wiederverwenden statt Hardcodes.
+- **Seitenrahmen**: `#wpbody-content > .wrap` erhält den gemeinsamen Verlauf, Schatten und Typo für Überschriften — gilt für **alle** Plugin-Screens mit `.wrap`.
+- **Tabellenspalten**: Listen mit `class="widefat"` (und optional `striped`) übernehmen automatisch einheitliche **Kopfzeilen** (Verlauf, Gold-Akzent-Linie), Zellenränder und Zebrastreifen. Neue tabellarische Ansichten bevorzugt mit `widefat` bauen.
+- **Formulare**: `form-table` und Eingabefelder werden durch die gleiche Datei angeglichen.
+- **Karten**: `.rb-admin-simple-card`, `.rb-service-item`, `.rb-emp-card` sind an das Panel/Glas-Look angebunden (Ferien-Seite hat eigene Inline-Styles; bei großen Umbauten in `rewan-booking-admin.css` vereinheitlichen).
+- **Mobile**: Kalender-Breakpoints bei **782px** (WP-Admin); Touch: sinnvolle Mindesthöhen, `font-size: 16px` bei kritischen Inputs wo nötig.
+- **Barrierefreiheit**: `prefers-reduced-motion` respektieren bei Animationen; Fokus-Stile nicht entfernen.
+- **Scope**: Keine globalen Selektoren ohne `body.rewan-booking-admin` — das restliche wp-admin nicht überschreiben.
+
+## Sonstiges
+
+- Capabilities: `rewan_booking` (Salon), `rewan_booking_manage` (Verwaltung).
+- Frontend-Buchungsformular: Styles überwiegend in `class-rewan-booking-frontend.php`; ergänzbare CSS-Datei `assets/css/rewan-booking-frontend.css`.

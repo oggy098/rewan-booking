@@ -1,0 +1,458 @@
+/**
+ * Rewan Booking — dunkles Gold, passend zur Website.
+ * Höhere Spezifität als die älteren hellen Inline-Styles der einzelnen Seiten.
+ */
+
+body.rewan-booking-admin,
+body.rewan-booking-admin #wpwrap,
+body.rewan-booking-admin #wpcontent,
+body.rewan-booking-admin #wpbody,
+body.rewan-booking-admin #wpbody-content {
+	background: #0b0b0b;
+	color: #f6f1e4;
+}
+
+body.rewan-booking-admin #wpbody-content > .wrap,
+body.rewan-booking-admin #wpbody-content > .wrap:not(#bookly-tbs) {
+	background:
+		radial-gradient(circle at top right, rgba(212, 175, 55, 0.14), transparent 32%),
+		#121212;
+	border: 1px solid rgba(212, 175, 55, 0.28);
+	box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+	color: #f6f1e4;
+}
+
+body.rewan-booking-admin #wpbody-content > .wrap h1,
+body.rewan-booking-admin #wpbody-content > .wrap h2,
+body.rewan-booking-admin .rb-dash h1,
+body.rewan-booking-admin .rb-dash h2,
+body.rewan-booking-admin .rb-srv-page h2,
+body.rewan-booking-admin .rb-emp-page h2 {
+	color: #f3e2a4;
+}
+
+body.rewan-booking-admin .wrap p,
+body.rewan-booking-admin .description,
+body.rewan-booking-admin .rb-srv-intro,
+body.rewan-booking-admin .rb-emp-intro,
+body.rewan-booking-admin .rb-bk-page__lead {
+	color: #cbbfa9;
+}
+
+body.rewan-booking-admin .wrap input[type="text"],
+body.rewan-booking-admin .wrap input[type="email"],
+body.rewan-booking-admin .wrap input[type="url"],
+body.rewan-booking-admin .wrap input[type="number"],
+body.rewan-booking-admin .wrap input[type="password"],
+body.rewan-booking-admin .wrap input[type="time"],
+body.rewan-booking-admin .wrap input[type="date"],
+body.rewan-booking-admin .wrap textarea,
+body.rewan-booking-admin .wrap select {
+	background: #101010;
+	color: #f6f1e4;
+	border: 1px solid rgba(212, 175, 55, 0.35);
+	border-radius: 10px;
+	min-height: 40px;
+}
+
+body.rewan-booking-admin .button.button-primary,
+body.rewan-booking-admin .rb-bk-btn--primary {
+	background: linear-gradient(180deg, #e0b941 0%, #b58b1d 100%) !important;
+	border-color: #e0b941 !important;
+	color: #1a1404 !important;
+	text-shadow: none !important;
+	box-shadow: none;
+	border-radius: 999px;
+	font-weight: 700;
+}
+
+body.rewan-booking-admin .button,
+body.rewan-booking-admin .rb-bk-btn {
+	border-radius: 999px;
+}
+
+body.rewan-booking-admin .rb-srv-panel,
+body.rewan-booking-admin .rb-salon__card,
+body.rewan-booking-admin .rb-abs-panel,
+body.rewan-booking-admin .rb-emp-panel,
+body.rewan-booking-admin .rb-emp-edit-form,
+body.rewan-booking-admin .rb-emp-schedule-wrap,
+body.rewan-booking-admin .rb-gb-week-panel,
+body.rewan-booking-admin .rb-gb-callout,
+body.rewan-booking-admin .rb-oh-panel,
+body.rewan-booking-admin .rb-oh-callout,
+body.rewan-booking-admin .rb-dash__panel,
+body.rewan-booking-admin .rb-dash__stat,
+body.rewan-booking-admin .rb-bk-list,
+body.rewan-booking-admin .rb-bk-card,
+body.rewan-booking-admin .rb-bk-toolbar,
+body.rewan-booking-admin .widefat {
+	background: #161616 !important;
+	color: #f6f1e4 !important;
+	border: 1px solid rgba(212, 175, 55, 0.24) !important;
+	box-shadow: none;
+}
+
+body.rewan-booking-admin .rb-gb-callout,
+body.rewan-booking-admin .rb-oh-callout {
+	background: rgba(212, 175, 55, 0.08) !important;
+	border-left: 4px solid #d4af37 !important;
+}
+
+body.rewan-booking-admin .rb-gb-callout strong,
+body.rewan-booking-admin .rb-oh-callout strong {
+	color: #e0b941;
+	letter-spacing: 0.06em;
+}
+
+body.rewan-booking-admin .widefat thead th,
+body.rewan-booking-admin .widefat thead td,
+body.rewan-booking-admin .rb-emp-table thead th,
+body.rewan-booking-admin .rb-emp-schedule-table thead th,
+body.rewan-booking-admin .rb-gb-week-table th,
+body.rewan-booking-admin .rb-dash__table th,
+body.rewan-booking-admin .rb-bk-head {
+	background: #1c1c1c !important;
+	color: #e0b941 !important;
+	border-color: rgba(212, 175, 55, 0.2) !important;
+}
+
+body.rewan-booking-admin .widefat td,
+body.rewan-booking-admin .widefat th,
+body.rewan-booking-admin .rb-emp-table td,
+body.rewan-booking-admin .rb-emp-schedule-table td,
+body.rewan-booking-admin .rb-gb-week-table td,
+body.rewan-booking-admin .rb-dash__table td,
+body.rewan-booking-admin .rb-bk-row {
+	background: transparent;
+	color: #f6f1e4;
+	border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+body.rewan-booking-admin .rb-salon__section h2,
+body.rewan-booking-admin .rb-salon__nav a.is-secondary {
+	background: #161616 !important;
+	color: #f6f1e4 !important;
+	border-color: rgba(212, 175, 55, 0.28) !important;
+}
+
+body.rewan-booking-admin .rb-emp-name,
+body.rewan-booking-admin .rb-bk-customer-name,
+body.rewan-booking-admin .rb-cal-lite__date,
+body.rewan-booking-admin .rb-cal-lite__time {
+	color: #f6f1e4;
+}
+
+body.rewan-booking-admin .rb-emp-muted,
+body.rewan-booking-admin .rb-bk-customer-tel,
+body.rewan-booking-admin .rb-cal-lite__emp {
+	color: #cbbfa9;
+}
+
+body.rewan-booking-admin .rb-emp-pill--active,
+body.rewan-booking-admin .rb-bk-badge--confirmed {
+	background: rgba(65, 128, 72, 0.22) !important;
+	color: #b7e2b8 !important;
+	border-color: rgba(120, 180, 120, 0.45) !important;
+}
+
+body.rewan-booking-admin .rb-bk-badge--cancelled,
+body.rewan-booking-admin .rb-emp-pill--inactive {
+	background: rgba(180, 55, 55, 0.18) !important;
+	color: #f0b4b4 !important;
+	border-color: rgba(180, 55, 55, 0.4) !important;
+}
+
+body.rewan-booking-admin .rb-bk-seg {
+	background: #141414;
+	color: #f6f1e4;
+	border-color: rgba(212, 175, 55, 0.28);
+}
+
+body.rewan-booking-admin .rb-bk-seg.is-active {
+	background: linear-gradient(180deg, #e0b941 0%, #b58b1d 100%);
+	color: #1a1404;
+	border-color: #e0b941;
+}
+
+body.rewan-booking-admin .rb-emp-edit-row summary,
+body.rewan-booking-admin .rb-dash__link,
+body.rewan-booking-admin .rb-bk-customer-tel a {
+	color: #e0b941;
+}
+
+body.rewan-booking-admin .rb-emp-schedule-wrap.is-muted,
+body.rewan-booking-admin .rb-oh-row.is-closed input[type="time"],
+body.rewan-booking-admin .rb-gb-week-times.is-muted input[type="time"] {
+	opacity: 0.45;
+}
+
+body.rewan-booking-admin .rb-emp-follow {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	margin: 12px 0 4px;
+	font-weight: 700;
+	color: #f6f1e4;
+}
+
+body.rewan-booking-admin .rb-dash__head {
+	display: flex;
+	justify-content: space-between;
+	gap: 16px;
+	align-items: flex-end;
+	margin-bottom: 18px;
+}
+
+body.rewan-booking-admin .rb-dash__kicker {
+	margin: 0 0 4px;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	font-size: 12px;
+	color: #e0b941;
+}
+
+body.rewan-booking-admin .rb-dash__lead,
+body.rewan-booking-admin .rb-dash__hint,
+body.rewan-booking-admin .rb-dash__empty {
+	color: #cbbfa9;
+}
+
+body.rewan-booking-admin .rb-dash__presets {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+	margin-bottom: 16px;
+}
+
+body.rewan-booking-admin .rb-dash__preset {
+	border: 1px solid rgba(212, 175, 55, 0.35);
+	border-radius: 999px;
+	padding: 6px 12px;
+	color: #f6f1e4;
+	text-decoration: none;
+}
+
+body.rewan-booking-admin .rb-dash__preset.is-active {
+	background: linear-gradient(180deg, #e0b941 0%, #b58b1d 100%);
+	color: #1a1404;
+}
+
+body.rewan-booking-admin .rb-dash__range {
+	margin-left: auto;
+	color: #cbbfa9;
+}
+
+body.rewan-booking-admin .rb-dash__stats {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 12px;
+	margin-bottom: 16px;
+}
+
+body.rewan-booking-admin .rb-dash__stat {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 16px;
+	border-radius: 16px;
+	text-decoration: none;
+}
+
+body.rewan-booking-admin .rb-dash__stat-value {
+	font-size: 32px;
+	font-weight: 800;
+	color: #f6f1e4;
+}
+
+body.rewan-booking-admin .rb-dash__stat-label {
+	color: #e0b941;
+	font-size: 13px;
+}
+
+body.rewan-booking-admin .rb-dash__grid {
+	display: grid;
+	grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr);
+	gap: 14px;
+}
+
+body.rewan-booking-admin .rb-dash__panel,
+body.rewan-booking-admin .rb-oh-callout,
+body.rewan-booking-admin .rb-oh-panel {
+	border-radius: 16px;
+	padding: 16px;
+}
+
+body.rewan-booking-admin .rb-dash__table {
+	width: 100%;
+	border-collapse: collapse;
+}
+
+body.rewan-booking-admin .rb-dash__bar {
+	height: 8px;
+	border-radius: 999px;
+	background: #2a2a2a;
+	overflow: hidden;
+}
+
+body.rewan-booking-admin .rb-dash__bar span {
+	display: block;
+	height: 100%;
+	background: linear-gradient(90deg, #b58b1d, #e0b941);
+}
+
+body.rewan-booking-admin .rb-dash__load {
+	margin-bottom: 10px;
+}
+
+body.rewan-booking-admin .rb-dash__load-row {
+	display: flex;
+	justify-content: space-between;
+	font-size: 13px;
+	margin-bottom: 4px;
+}
+
+body.rewan-booking-admin .rb-dash__side {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+body.rewan-booking-admin .rb-dash__panel label {
+	display: block;
+	margin-bottom: 6px;
+	color: #cbbfa9;
+}
+
+body.rewan-booking-admin .rb-dash__panel input {
+	width: 100%;
+}
+
+body.rewan-booking-admin .rb-oh-row {
+	display: grid;
+	grid-template-columns: 140px 140px 1fr 1fr;
+	gap: 12px;
+	align-items: end;
+	padding: 12px 0;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+body.rewan-booking-admin .rb-oh-day {
+	font-weight: 700;
+	padding-bottom: 8px;
+}
+
+body.rewan-booking-admin .rb-oh-row label {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	color: #cbbfa9;
+	font-size: 12px;
+}
+
+body.rewan-booking-admin .rb-oh-toggle {
+	flex-direction: row !important;
+	align-items: center;
+	gap: 8px !important;
+	font-size: 14px !important;
+	color: #f6f1e4 !important;
+	padding-bottom: 8px;
+}
+
+body.rewan-booking-admin .rb-cal-lite__dow,
+body.rewan-booking-admin .rb-cal-lite__cell {
+	background: #161616 !important;
+	color: #f6f1e4 !important;
+	border-color: rgba(212, 175, 55, 0.22) !important;
+}
+
+body.rewan-booking-admin .rb-cal-lite__cell--blank {
+	background: #101010 !important;
+}
+
+body.rewan-booking-admin .rb-cal-lite__item-btn {
+	background: #1c1c1c !important;
+	border-color: rgba(212, 175, 55, 0.28) !important;
+	color: #f6f1e4;
+}
+
+body.rewan-booking-admin .rb-cal-emp-0 { box-shadow: inset 3px 0 0 #e0b941; }
+body.rewan-booking-admin .rb-cal-emp-1 { box-shadow: inset 3px 0 0 #f3e2a4; }
+body.rewan-booking-admin .rb-cal-emp-2 { box-shadow: inset 3px 0 0 #c4a574; }
+body.rewan-booking-admin .rb-cal-emp-3 { box-shadow: inset 3px 0 0 #8d7350; }
+body.rewan-booking-admin .rb-cal-emp-4 { box-shadow: inset 3px 0 0 #efe7d2; }
+body.rewan-booking-admin .rb-cal-emp-5 { box-shadow: inset 3px 0 0 #b58b1d; }
+
+body.rewan-booking-admin .rb-cal-lite-modal__dialog,
+body.rewan-booking-admin .rb-cal-lite-modal__head,
+body.rewan-booking-admin .rb-cal-lite-modal__foot {
+	background: #161616 !important;
+	color: #f6f1e4 !important;
+	border-color: rgba(212, 175, 55, 0.28) !important;
+}
+
+body.rewan-booking-admin .rb-cal-lite-modal__label { color: #cbbfa9 !important; }
+body.rewan-booking-admin .rb-cal-lite-modal__value,
+body.rewan-booking-admin .rb-cal-lite-modal__head h2 { color: #f6f1e4 !important; }
+
+body.rewan-booking-admin .rb-cal-lite-modal__close {
+	background: #101010 !important;
+	color: #f6f1e4 !important;
+	border-color: rgba(212, 175, 55, 0.35) !important;
+}
+
+body.rewan-booking-admin #bookly-tbs,
+body.rewan-booking-admin .rb-abs-days-off-shell {
+	background: transparent;
+	color: #f6f1e4;
+}
+
+body.rewan-booking-admin #adminmenu #toplevel_page_rewan-booking .wp-submenu {
+	background: #0c0c0c;
+}
+
+body.rewan-booking-admin #adminmenu #toplevel_page_rewan-booking .wp-submenu a {
+	color: #e8dfc8;
+}
+
+body.rewan-booking-admin #adminmenu #toplevel_page_rewan-booking .wp-submenu li.current a,
+body.rewan-booking-admin #adminmenu #toplevel_page_rewan-booking .wp-submenu a:hover,
+body.rewan-booking-admin #adminmenu #toplevel_page_rewan-booking .wp-submenu a:focus {
+	color: #1a1404 !important;
+	background: linear-gradient(180deg, #e0b941 0%, #b58b1d 100%) !important;
+	box-shadow: none;
+}
+
+body.rewan-booking-admin #adminmenu .wp-submenu a[href*="page=rewan-booking-hours"],
+body.rewan-booking-admin #adminmenu .wp-submenu a[href*="page=rewan-booking-services"] {
+	box-shadow: inset 0 1px 0 rgba(212, 175, 55, 0.45);
+	margin-top: 6px;
+}
+
+body.rewan-booking-admin code {
+	background: #1c1c1c;
+	color: #e0b941;
+}
+
+@media (max-width: 960px) {
+	body.rewan-booking-admin .rb-dash__stats,
+	body.rewan-booking-admin .rb-dash__grid,
+	body.rewan-booking-admin .rb-oh-row {
+		grid-template-columns: 1fr;
+	}
+	body.rewan-booking-admin .rb-dash__head {
+		flex-direction: column;
+		align-items: flex-start;
+	}
+	body.rewan-booking-admin .rb-dash__range {
+		margin-left: 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	body.rewan-booking-admin * {
+		scroll-behavior: auto !important;
+		transition: none !important;
+	}
+}

@@ -7,6 +7,8 @@ if (!defined('ABSPATH')) {
 class Rewan_Booking_Frontend {
 
     public function init() {
+        $this->maybe_migrate_legacy_weekday_schema();
+
         add_shortcode('rewan_booking_form', array($this, 'render_booking_form'));
 
         add_action('admin_post_nopriv_rewan_booking_submit', array($this, 'handle_booking_submission'));
@@ -14,6 +16,107 @@ class Rewan_Booking_Frontend {
 
         add_action('wp_ajax_rewan_booking_get_slots', array($this, 'ajax_get_slots'));
         add_action('wp_ajax_nopriv_rewan_booking_get_slots', array($this, 'ajax_get_slots'));
+    }
+
+    /**
+     * One-time migration for old weekday schema (0..6) to ISO schema (1..7).
+     */
+    private function maybe_migrate_legacy_weekday_schema() {
+        $flag = get_option('rewan_booking_weekday_schema_migrated', '');
+        if ($flag === '1') {
+            return;
+        }
+
+        global $wpdb;
+
+        $hours_table = $wpdb->prefix . 'rewan_booking_employee_hours';
+        $breaks_table = $wpdb->prefix . 'rewan_booking_employee_breaks';
+        $global_table = $wpdb->prefix . 'rewan_booking_global_week_schedule';
+
+        $this->migrate_employee_weekdays_to_iso($hours_table);
+        $this->migrate_employee_weekdays_to_iso($breaks_table);
+        $this->migrate_global_weekdays_to_iso($global_table);
+
+        update_option('rewan_booking_weekday_schema_migrated', '1', false);
+    }
+
+    private function migrate_employee_weekdays_to_iso($table_name) {
+        global $wpdb;
+
+        $employee_ids = $wpdb->get_col("SELECT DISTINCT employee_id FROM {$table_name}");
+        if (!is_array($employee_ids) || empty($employee_ids)) {
+            return;
+        }
+
+        foreach ($employee_ids as $employee_id_raw) {
+            $employee_id = (int) $employee_id_raw;
+            if ($employee_id <= 0) {
+                continue;
+            }
+
+            $has_zero = (int) $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$table_name} WHERE employee_id = %d AND weekday = 0",
+                    $employee_id
+                )
+            );
+            $has_seven = (int) $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$table_name} WHERE employee_id = %d AND weekday = 7",
+                    $employee_id
+                )
+            );
+            $max_weekday = (int) $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT COALESCE(MAX(weekday), -1) FROM {$table_name} WHERE employee_id = %d",
+                    $employee_id
+                )
+            );
+
+            $is_legacy = ($has_seven === 0) && ($has_zero > 0 || ($max_weekday >= 0 && $max_weekday <= 6));
+            if (!$is_legacy) {
+                continue;
+            }
+
+            // Phase 1: move to temporary range to avoid unique collisions.
+            $wpdb->query(
+                $wpdb->prepare(
+                    "UPDATE {$table_name}
+                     SET weekday = weekday + 10
+                     WHERE employee_id = %d",
+                    $employee_id
+                )
+            );
+
+            // Phase 2: normalize to ISO range (+1 net shift).
+            $wpdb->query(
+                $wpdb->prepare(
+                    "UPDATE {$table_name}
+                     SET weekday = weekday - 9
+                     WHERE employee_id = %d
+                     AND weekday BETWEEN 10 AND 16",
+                    $employee_id
+                )
+            );
+        }
+    }
+
+    private function migrate_global_weekdays_to_iso($table_name) {
+        global $wpdb;
+
+        $has_zero = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE weekday = 0");
+        $has_seven = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE weekday = 7");
+        $max_weekday = (int) $wpdb->get_var("SELECT COALESCE(MAX(weekday), -1) FROM {$table_name}");
+
+        $is_legacy = ($has_seven === 0) && ($has_zero > 0 || ($max_weekday >= 0 && $max_weekday <= 6));
+        if (!$is_legacy) {
+            return;
+        }
+
+        // Phase 1: temporary range avoids PK collisions on weekday.
+        $wpdb->query("UPDATE {$table_name} SET weekday = weekday + 10");
+        // Phase 2: normalize to ISO range (+1 net shift).
+        $wpdb->query("UPDATE {$table_name} SET weekday = weekday - 9 WHERE weekday BETWEEN 10 AND 16");
     }
 
     public function render_booking_form() {
@@ -37,6 +140,8 @@ class Rewan_Booking_Frontend {
 
         $min_date = current_time('Y-m-d');
         $ajax_nonce = wp_create_nonce('rewan_booking_slots_nonce');
+        wp_enqueue_script('jquery');
+        wp_enqueue_script('jquery-ui-datepicker');
 
         ob_start();
         ?>
@@ -393,12 +498,31 @@ class Rewan_Booking_Frontend {
     border-radius: 14px;
     border: 1px solid rgba(255,255,255,0.10);
     background: #101010;
-    color: #fff;
+    color: #fff !important;
+    -webkit-text-fill-color: #fff !important;
+    caret-color: #fff;
     font-size: 18px;
     box-sizing: border-box;
     outline: none;
     transition: border-color 0.2s;
     color-scheme: dark;
+}
+
+.rb-input::placeholder,
+.rb-textarea::placeholder {
+    color: #a79e8f;
+    opacity: 1;
+}
+
+.rb-input:-webkit-autofill,
+.rb-input:-webkit-autofill:hover,
+.rb-input:-webkit-autofill:focus,
+.rb-textarea:-webkit-autofill,
+.rb-textarea:-webkit-autofill:hover,
+.rb-textarea:-webkit-autofill:focus {
+    -webkit-text-fill-color: #fff !important;
+    box-shadow: 0 0 0 1000px #101010 inset !important;
+    transition: background-color 9999s ease-in-out 0s;
 }
 
 .rb-input::-webkit-calendar-picker-indicator {
@@ -647,35 +771,190 @@ class Rewan_Booking_Frontend {
 }
 
 /* =========================================
-   Kalender-Auswahl (Reines goldenes Icon)
+   Kalender-Auswahl (Frontend Datepicker)
    ========================================= */
 
-input[type="date"].rb-input {
-    color-scheme: dark; 
-    cursor: pointer;
+.rb-date-field {
+    position: relative;
 }
 
-input[type="date"].rb-input::-webkit-calendar-picker-indicator {
-    /* Reines Kalender-Icon in deinem Goldton (#d4af37) mit etwas dickerer Linie (stroke-width="2.5") */
-    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%23d4af37" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>');
-    background-position: center right;
+.rb-date-field .rb-input {
+    padding-right: 52px;
+    cursor: pointer;
+    font-size: 17px;
+    letter-spacing: 0.01em;
+}
+
+.rb-date-field .rb-date-input {
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%23d4af37" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>');
+    background-position: right 14px center;
     background-repeat: no-repeat;
     background-size: 24px 24px;
-    
-    width: 24px;
-    height: 24px;
-    padding: 5px;
-    background-color: transparent; /* Kein farbiger Hintergrund */
-    border: none;
-    cursor: pointer;
-    opacity: 1 !important;
-    transition: transform 0.2s ease, filter 0.2s;
+    opacity: 0.92;
 }
 
-/* Hover-Effekt: Wird minimal größer und leuchtet heller beim Drüberfahren */
-input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
-    transform: scale(1.15);
-    filter: brightness(1.2);
+.rb-date-field .rb-date-input::placeholder {
+    color: #b8ae9b;
+    font-size: 16px;
+    letter-spacing: 0.02em;
+}
+
+.ui-datepicker.rb-datepicker-ui {
+    z-index: 10050 !important;
+    width: 360px;
+    max-width: calc(100vw - 24px);
+    padding: 12px 12px 10px;
+    border: 1px solid rgba(212,175,55,0.35);
+    border-radius: 14px;
+    background: linear-gradient(180deg, #121212 0%, #0b0b0b 100%);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.45);
+    color: #f3ead7;
+}
+
+.ui-datepicker.rb-datepicker-ui .ui-datepicker-header {
+    position: relative;
+    margin-bottom: 6px;
+    padding: 4px 28px;
+    background: transparent;
+    border: none;
+    color: #fff;
+}
+
+.ui-datepicker.rb-datepicker-ui .ui-datepicker-title {
+    text-align: center;
+    font-size: 21px;
+    font-weight: 700;
+}
+
+.ui-datepicker.rb-datepicker-ui .ui-datepicker-prev,
+.ui-datepicker.rb-datepicker-ui .ui-datepicker-next {
+    position: absolute;
+    top: 2px;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.03);
+    cursor: pointer;
+}
+
+.ui-datepicker.rb-datepicker-ui .ui-datepicker-prev { left: 0; }
+.ui-datepicker.rb-datepicker-ui .ui-datepicker-next { right: 0; }
+
+.ui-datepicker.rb-datepicker-ui .ui-datepicker-prev span,
+.ui-datepicker.rb-datepicker-ui .ui-datepicker-next span {
+    display: block;
+    width: 100%;
+    height: 100%;
+    text-indent: -9999px;
+    position: relative;
+}
+
+.ui-datepicker.rb-datepicker-ui .ui-datepicker-prev span::before,
+.ui-datepicker.rb-datepicker-ui .ui-datepicker-next span::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    border-top: 2px solid #d4af37;
+    border-right: 2px solid #d4af37;
+    transform-origin: center;
+}
+
+.ui-datepicker.rb-datepicker-ui .ui-datepicker-prev span::before {
+    transform: translate(-35%, -50%) rotate(-135deg);
+}
+
+.ui-datepicker.rb-datepicker-ui .ui-datepicker-next span::before {
+    transform: translate(-65%, -50%) rotate(45deg);
+}
+
+.ui-datepicker.rb-datepicker-ui table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 6px;
+    margin: 0;
+}
+
+.ui-datepicker.rb-datepicker-ui th {
+    padding: 6px 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: #cbbfa9;
+    text-transform: uppercase;
+}
+
+.ui-datepicker.rb-datepicker-ui td {
+    padding: 0;
+}
+
+.ui-datepicker.rb-datepicker-ui td a,
+.ui-datepicker.rb-datepicker-ui td span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    color: #fff;
+    text-decoration: none;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.ui-datepicker.rb-datepicker-ui td a:hover {
+    border-color: rgba(212,175,55,0.55);
+    background: rgba(212,175,55,0.12);
+}
+
+.ui-datepicker.rb-datepicker-ui td.ui-datepicker-current-day a {
+    border-color: #d4af37;
+    background: #d4af37;
+    color: #111;
+}
+
+.ui-datepicker.rb-datepicker-ui td.ui-datepicker-today a {
+    box-shadow: inset 0 0 0 1px rgba(212,175,55,0.55);
+}
+
+.ui-datepicker.rb-datepicker-ui .ui-state-disabled span {
+    opacity: 0.35;
+}
+
+.ui-datepicker.rb-datepicker-ui .ui-datepicker-buttonpane {
+    margin-top: 6px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.ui-datepicker.rb-datepicker-ui .ui-datepicker-buttonpane button {
+    border: 1px solid rgba(212,175,55,0.4);
+    background: rgba(212,175,55,0.08);
+    color: #e9dcbd;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+@media (max-width: 480px) {
+    .ui-datepicker.rb-datepicker-ui {
+        width: calc(100vw - 20px);
+        max-width: calc(100vw - 20px);
+        padding: 10px 8px 8px;
+    }
+    .ui-datepicker.rb-datepicker-ui table {
+        border-spacing: 4px;
+    }
+    .ui-datepicker.rb-datepicker-ui td a,
+    .ui-datepicker.rb-datepicker-ui td span {
+        width: 36px;
+        height: 36px;
+        font-size: 16px;
+    }
 }
 
 
@@ -829,9 +1108,10 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
                             <div class="rb-panel" id="rb-step-slots">
                                 <h3>3. Datum & freie Zeiten</h3>
                                 <p class="rb-step-help">Datum wählen und eine freie Zeit antippen.</p>
-                                <div class="rb-field">
-                                    <label class="rb-label" for="booking_date">Datum</label>
-                                    <input type="date" id="booking_date" name="booking_date" class="rb-input" min="<?php echo esc_attr($min_date); ?>" value="<?php echo esc_attr($min_date); ?>" required>
+                                <div class="rb-field rb-date-field">
+                                    <label class="rb-label" for="booking_date_display">Datum</label>
+                                    <input type="text" id="booking_date_display" class="rb-input rb-date-input" inputmode="none" autocomplete="off" value="<?php echo esc_attr(date_i18n('d/m/Y', strtotime($min_date))); ?>" placeholder="dd/mm/jjjj" required>
+                                    <input type="hidden" id="booking_date" name="booking_date" min="<?php echo esc_attr($min_date); ?>" data-min-date="<?php echo esc_attr($min_date); ?>" value="<?php echo esc_attr($min_date); ?>" required>
                                 </div>
 
                                 <div class="rb-info" id="rb-slot-info">
@@ -917,7 +1197,9 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
                                 </p>
 
                                 <button type="submit" class="rb-btn">Termin verbindlich buchen</button>
-                                <button type="button" class="rb-download-btn" id="rb_download_image" style="display: none;">Zusammenstellung als Bild speichern</button>
+                                <button type="button" class="rb-download-btn" id="rb_download_image" style="<?php echo $success ? 'display: block;' : 'display: none;'; ?>">
+                                    <?php echo $success ? 'Du hast erfolgreich deinen Termin gebucht - als Bild zusammenstellen' : 'Zusammenstellung als Bild speichern'; ?>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -944,11 +1226,13 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
                 document.addEventListener('DOMContentLoaded', function () {
                     const ajaxUrl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
                     const ajaxNonce = <?php echo wp_json_encode($ajax_nonce); ?>;
+                    const bookingWasSuccessful = <?php echo $success ? 'true' : 'false'; ?>;
 
                     const serviceCheckboxes = document.querySelectorAll('.rb-service-checkbox');
                     const employeeRadios = document.querySelectorAll('.rb-employee-radio');
                     const employeeHidden = document.getElementById('rb_employee_id_hidden');
                     const bookingDate = document.getElementById('booking_date');
+                    const bookingDateDisplay = document.getElementById('booking_date_display');
                     const slotWrap = document.getElementById('rb-slots');
                     const slotInfo = document.getElementById('rb-slot-info');
                     const selectedSlotInput = document.getElementById('rb_selected_slot');
@@ -977,7 +1261,7 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
                     const successCloseBtn = document.getElementById('rb_success_close');
 
                     // Falls das Formular auf einer Seite nicht vorhanden ist, abbrechen.
-                    if (!bookingDate || !slotWrap || !slotInfo || !selectedSlotInput || !employeeHidden) {
+                    if (!bookingDate || !bookingDateDisplay || !slotWrap || !slotInfo || !selectedSlotInput || !employeeHidden) {
                         return;
                     }
 
@@ -1219,14 +1503,18 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
                         updateSummary();
                     }
 
-                    function renderSlots(slots) {
+                    function renderSlots(slots, debugInfo) {
                         slotWrap.innerHTML = '';
                         selectedSlotInput.value = '';
                         summaryTime.textContent = '-';
                         updateSummary();
 
                         if (!slots.length) {
-                            slotInfo.textContent = 'Für diese Auswahl sind keine freien Slots verfügbar.';
+                            let msg = 'Für diese Auswahl sind keine freien Slots verfügbar.';
+                            if (debugInfo && debugInfo.summary) {
+                                msg += ' (' + debugInfo.summary + ')';
+                            }
+                            slotInfo.textContent = msg;
                             updateStepFlow();
                             return;
                         }
@@ -1292,7 +1580,7 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
                                 return;
                             }
 
-                            renderSlots(data.data.slots || []);
+                            renderSlots(data.data.slots || [], data.data.debug || null);
                         } catch (error) {
                             resetSlots('Slots konnten nicht geladen werden.');
                             updateStepFlow();
@@ -1308,6 +1596,78 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
                     });
 
                     bookingDate.addEventListener('change', loadSlots);
+                    
+                    function initFrontendDatepicker() {
+                        if (!window.jQuery || !window.jQuery.fn || typeof window.jQuery.fn.datepicker !== 'function') {
+                            return;
+                        }
+                        const $date = window.jQuery(bookingDateDisplay);
+                        if ($date.hasClass('hasDatepicker')) {
+                            return;
+                        }
+
+                        let minDateOpt = 0;
+                        const minRaw = bookingDate.getAttribute('data-min-date') || bookingDate.getAttribute('min') || '';
+                        if (minRaw) {
+                            try {
+                                minDateOpt = window.jQuery.datepicker.parseDate('yy-mm-dd', minRaw);
+                            } catch (_err) {
+                                minDateOpt = 0;
+                            }
+                        }
+
+                        $date.datepicker({
+                            dateFormat: 'dd/mm/yy',
+                            altField: '#booking_date',
+                            altFormat: 'yy-mm-dd',
+                            minDate: minDateOpt,
+                            firstDay: 1,
+                            monthNames: ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'],
+                            monthNamesShort: ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'],
+                            dayNames: ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'],
+                            dayNamesShort: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'],
+                            // jQuery UI expects Sunday-first order and rotates by firstDay.
+                            // Keeping this array Monday-first shifts labels by one day.
+                            dayNamesMin: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'],
+                            prevText: 'Zurück',
+                            nextText: 'Weiter',
+                            currentText: 'Heute',
+                            showOtherMonths: true,
+                            selectOtherMonths: true,
+                            showButtonPanel: true,
+                            beforeShow: function (_input, inst) {
+                                setTimeout(function () {
+                                    if (inst && inst.dpDiv) {
+                                        inst.dpDiv.addClass('rb-datepicker-ui');
+                                    }
+                                }, 0);
+                            },
+                            onSelect: function () {
+                                bookingDate.dispatchEvent(new Event('change', { bubbles: true }));
+                            }
+                        });
+
+                        // Falls bereits ein ISO-Datum gesetzt ist, in DD/MM/JJJJ anzeigen.
+                        if (bookingDate.value) {
+                            try {
+                                const iso = bookingDate.value.split('-');
+                                if (iso.length === 3) {
+                                    bookingDateDisplay.value = iso[2] + '/' + iso[1] + '/' + iso[0];
+                                }
+                            } catch (_err) {
+                                // ignore
+                            }
+                        }
+
+                        bookingDateDisplay.addEventListener('focus', function () {
+                            $date.datepicker('show');
+                        });
+                        bookingDateDisplay.addEventListener('click', function () {
+                            $date.datepicker('show');
+                        });
+                    }
+
+                    initFrontendDatepicker();
                     if (nextToEmployee) {
                         nextToEmployee.addEventListener('click', function () {
                             smoothScrollTo(panelEmployee);
@@ -1341,7 +1701,11 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
                                     const downloadBtn = document.getElementById('rb_download_image');
                                     if (!downloadBtn) return;
 
-                                    // Button explizit anzeigen, falls CSS ihn versteckt
+                                    // Download nur nach erfolgreicher Buchung erlauben.
+                                    if (!bookingWasSuccessful) {
+                                        downloadBtn.style.display = 'none';
+                                        return;
+                                    }
                                     downloadBtn.style.display = 'block';
 
                                     downloadBtn.addEventListener('click', function() {
@@ -1405,13 +1769,16 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
             wp_send_json_error(array('message' => 'Ungültige Dienstleistungen.'));
         }
 
+        $debug = array();
         if ($employee_id_raw === 'general') {
             $slots = $this->get_available_slots_for_general($booking_date, $total_duration);
         } else {
-            $slots = $this->get_available_slots_for_employee((int) $employee_id_raw, $booking_date, $total_duration);
+            $employee_id = (int) $employee_id_raw;
+            $slots = $this->get_available_slots_for_employee($employee_id, $booking_date, $total_duration);
+            $debug = $this->build_slot_debug_info($employee_id, $booking_date, $total_duration);
         }
 
-        wp_send_json_success(array('slots' => $slots));
+        wp_send_json_success(array('slots' => $slots, 'debug' => $debug));
     }
 
     public function handle_booking_submission() {
@@ -1609,7 +1976,7 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
     }
 
     private function get_available_slots_for_employee($employee_id, $booking_date, $total_duration) {
-        $schedule = $this->get_employee_schedule_for_date($employee_id, $booking_date);
+        $schedule = $this->get_effective_schedule_for_date($employee_id, $booking_date);
 
         if (!$schedule || (int) $schedule['is_working'] !== 1) {
             return array();
@@ -1644,7 +2011,7 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
                 continue;
             }
 
-            if (!$this->is_bookable_for_employee($employee_id, $booking_date, $start_time, $end_time)) {
+            if ($this->get_slot_block_reason($employee_id, $booking_date, $start_time, $end_time) !== '') {
                 continue;
             }
 
@@ -1658,13 +2025,24 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
         global $wpdb;
 
         $hours_table = $wpdb->prefix . 'rewan_booking_employee_hours';
-        $weekday = (int) date('N', strtotime($booking_date));
+        $weekday_iso = (int) date('N', strtotime($booking_date)); // 1=Mo ... 7=So
+        $weekday_legacy = $weekday_iso - 1; // Legacy schema: 0=Mo ... 6=So
+        $weekday_mode = $this->detect_employee_weekday_mode($hours_table, $employee_id);
+        $use_legacy = ($weekday_mode === 'legacy');
+        $primary_weekday = $use_legacy ? $weekday_legacy : $weekday_iso;
+        $fallback_weekday = $use_legacy ? $weekday_iso : $weekday_legacy;
 
         return $wpdb->get_row(
             $wpdb->prepare(
-                "SELECT * FROM $hours_table WHERE employee_id = %d AND weekday = %d",
+                "SELECT * FROM $hours_table
+                 WHERE employee_id = %d
+                 AND weekday IN (%d, %d)
+                 ORDER BY CASE WHEN weekday = %d THEN 0 ELSE 1 END
+                 LIMIT 1",
                 $employee_id,
-                $weekday
+                $primary_weekday,
+                $fallback_weekday,
+                $primary_weekday
             ),
             ARRAY_A
         );
@@ -1674,20 +2052,43 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
         global $wpdb;
 
         $breaks_table = $wpdb->prefix . 'rewan_booking_employee_breaks';
-        $weekday = (int) date('N', strtotime($booking_date));
+        $weekday_iso = (int) date('N', strtotime($booking_date)); // 1=Mo ... 7=So
+        $weekday_legacy = $weekday_iso - 1; // Legacy schema: 0=Mo ... 6=So
+        $weekday_mode = $this->detect_employee_weekday_mode($breaks_table, $employee_id);
+        $use_legacy = ($weekday_mode === 'legacy');
+        $primary_weekday = $use_legacy ? $weekday_legacy : $weekday_iso;
+        $fallback_weekday = $use_legacy ? $weekday_iso : $weekday_legacy;
 
         return $wpdb->get_row(
             $wpdb->prepare(
-                "SELECT * FROM $breaks_table WHERE employee_id = %d AND weekday = %d",
+                "SELECT * FROM $breaks_table
+                 WHERE employee_id = %d
+                 AND weekday IN (%d, %d)
+                 ORDER BY CASE WHEN weekday = %d THEN 0 ELSE 1 END
+                 LIMIT 1",
                 $employee_id,
-                $weekday
+                $primary_weekday,
+                $fallback_weekday,
+                $primary_weekday
             ),
             ARRAY_A
         );
     }
 
+    /**
+     * Arbeitszeit, begrenzt durch die Laden-Öffnung. Ohne Öffnungstabelle bleibt die bisherige Arbeitszeit.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function get_effective_schedule_for_date($employee_id, $booking_date) {
+        if (class_exists('Rewan_Booking_Schedule')) {
+            return Rewan_Booking_Schedule::effective_for_employee((int) $employee_id, (string) $booking_date);
+        }
+        return $this->get_employee_schedule_for_date($employee_id, $booking_date);
+    }
+
     private function is_within_working_hours($employee_id, $booking_date, $start_time, $end_time) {
-        $schedule = $this->get_employee_schedule_for_date($employee_id, $booking_date);
+        $schedule = $this->get_effective_schedule_for_date($employee_id, $booking_date);
 
         if (!$schedule || (int) $schedule['is_working'] !== 1) {
             return false;
@@ -1704,6 +2105,164 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
         }
 
         return ($start_time < $break['break_end'] && $end_time > $break['break_start']);
+    }
+
+    /**
+     * Prüft Überschneidung eines Buchungsintervalls mit einer Abwesenheits-/Sperrzeile (gleiche Logik wie Admin).
+     *
+     * @param string               $booking_date Y-m-d
+     * @param string               $start_time   H:i:s
+     * @param string               $end_time     H:i:s
+     * @param array<string,mixed> $row          DB-Zeile mit start_date, end_date, is_all_day, start_time, end_time
+     */
+    private function slot_overlaps_block_row($booking_date, $start_time, $end_time, array $row) {
+        if ((int) $row['is_all_day'] === 1) {
+            return true;
+        }
+
+        $sd = (string) $row['start_date'];
+        $ed = (string) $row['end_date'];
+        $rst = (string) $row['start_time'];
+        $ret = (string) $row['end_time'];
+
+        if ($sd === $ed) {
+            return ($start_time < $ret && $end_time > $rst);
+        }
+
+        if ($booking_date === $sd) {
+            $virt_end = '23:59:59';
+
+            return ($start_time < $virt_end && $end_time > $rst);
+        }
+
+        if ($booking_date === $ed) {
+            return ($start_time < $ret && $end_time > '00:00:00');
+        }
+
+        return true;
+    }
+
+    private function overlaps_global_booking_block($booking_date, $start_time, $end_time) {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'rewan_booking_global_week_schedule';
+        $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table)));
+        if ($exists !== $table) {
+            return false;
+        }
+
+        $ts = strtotime($booking_date . ' 12:00:00');
+        if (!$ts) {
+            return false;
+        }
+        $weekday_iso = (int) date('N', $ts); // 1=Mo ... 7=So
+        if ($weekday_iso < 1 || $weekday_iso > 7) {
+            return false;
+        }
+        $weekday_legacy = $weekday_iso - 1; // Legacy schema: 0=Mo ... 6=So
+        $weekday_mode = $this->detect_global_weekday_mode($table);
+        $use_legacy = ($weekday_mode === 'legacy');
+        $primary_weekday = $use_legacy ? $weekday_legacy : $weekday_iso;
+        $fallback_weekday = $use_legacy ? $weekday_iso : $weekday_legacy;
+
+        $row = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT * FROM {$table}
+                 WHERE weekday IN (%d, %d)
+                 ORDER BY CASE WHEN weekday = %d THEN 0 ELSE 1 END
+                 LIMIT 1",
+                $primary_weekday,
+                $fallback_weekday,
+                $primary_weekday
+            ),
+            ARRAY_A
+        );
+        if (!is_array($row) || empty($row['block_mode'])) {
+            return false;
+        }
+
+        $mode = (string) $row['block_mode'];
+        if ($mode === 'none' || $mode === '') {
+            return false;
+        }
+        if ($mode === 'all_day') {
+            return true;
+        }
+        if ($mode !== 'interval') {
+            return false;
+        }
+
+        $rst = (string) $row['start_time'];
+        $ret = (string) $row['end_time'];
+
+        return ($start_time < $ret && $end_time > $rst);
+    }
+
+    /**
+     * Detect employee weekday schema: 'iso' (1..7), 'legacy' (0..6), or 'mixed'.
+     */
+    private function detect_employee_weekday_mode($table_name, $employee_id) {
+        global $wpdb;
+
+        $has_zero = (int) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$table_name} WHERE employee_id = %d AND weekday = 0",
+                $employee_id
+            )
+        );
+        $has_seven = (int) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$table_name} WHERE employee_id = %d AND weekday = 7",
+                $employee_id
+            )
+        );
+        $max_weekday = (int) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT COALESCE(MAX(weekday), -1) FROM {$table_name} WHERE employee_id = %d",
+                $employee_id
+            )
+        );
+
+        if ($has_zero > 0 && $has_seven === 0) {
+            return 'legacy';
+        }
+        if ($has_seven > 0 && $has_zero === 0) {
+            return 'iso';
+        }
+        if ($has_zero === 0 && $has_seven === 0 && $max_weekday >= 0 && $max_weekday <= 6) {
+            return 'legacy';
+        }
+
+        return 'mixed';
+    }
+
+    /**
+     * Detect global weekday schema: 'iso' (1..7), 'legacy' (0..6), or 'mixed'.
+     */
+    private function detect_global_weekday_mode($table_name) {
+        global $wpdb;
+
+        $has_zero = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$table_name} WHERE weekday = 0"
+        );
+        $has_seven = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$table_name} WHERE weekday = 7"
+        );
+        $max_weekday = (int) $wpdb->get_var(
+            "SELECT COALESCE(MAX(weekday), -1) FROM {$table_name}"
+        );
+
+        if ($has_zero > 0 && $has_seven === 0) {
+            return 'legacy';
+        }
+        if ($has_seven > 0 && $has_zero === 0) {
+            return 'iso';
+        }
+        if ($has_zero === 0 && $has_seven === 0 && $max_weekday >= 0 && $max_weekday <= 6) {
+            return 'legacy';
+        }
+
+        return 'mixed';
     }
 
     private function overlaps_absence($employee_id, $booking_date, $start_time, $end_time) {
@@ -1727,11 +2286,7 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
         }
 
         foreach ($rows as $row) {
-            if ((int) $row['is_all_day'] === 1) {
-                return true;
-            }
-
-            if ($start_time < $row['end_time'] && $end_time > $row['start_time']) {
+            if ($this->slot_overlaps_block_row($booking_date, $start_time, $end_time, $row)) {
                 return true;
             }
         }
@@ -1764,23 +2319,113 @@ input[type="date"].rb-input::-webkit-calendar-picker-indicator:hover {
     }
 
     private function is_bookable_for_employee($employee_id, $booking_date, $start_time, $end_time) {
+        return $this->get_slot_block_reason($employee_id, $booking_date, $start_time, $end_time) === '';
+    }
+
+    private function get_slot_block_reason($employee_id, $booking_date, $start_time, $end_time) {
+        if ($this->overlaps_global_booking_block($booking_date, $start_time, $end_time)) {
+            return 'global_block';
+        }
         if (!$this->is_within_working_hours($employee_id, $booking_date, $start_time, $end_time)) {
-            return false;
+            return 'outside_working_hours';
         }
-
         if ($this->overlaps_break($employee_id, $booking_date, $start_time, $end_time)) {
-            return false;
+            return 'break';
         }
-
         if ($this->overlaps_absence($employee_id, $booking_date, $start_time, $end_time)) {
-            return false;
+            return 'absence';
         }
-
         if ($this->has_booking_conflict($employee_id, $booking_date, $start_time, $end_time)) {
-            return false;
+            return 'booking_conflict';
         }
 
-        return true;
+        return '';
+    }
+
+    private function build_slot_debug_info($employee_id, $booking_date, $total_duration) {
+        $schedule = $this->get_effective_schedule_for_date($employee_id, $booking_date);
+        if (!$schedule || (int) $schedule['is_working'] !== 1) {
+            return array(
+                'employee_id' => (int) $employee_id,
+                'booking_date' => (string) $booking_date,
+                'total_duration' => (int) $total_duration,
+                'summary' => 'Mitarbeiter hat an diesem Tag keine aktiven Arbeitszeiten.',
+                'reasons' => array('outside_working_hours' => 1),
+            );
+        }
+
+        $day_start = strtotime($booking_date . ' ' . $schedule['start_time']);
+        $day_end = strtotime($booking_date . ' ' . $schedule['end_time']);
+        if (!$day_start || !$day_end || $day_end <= $day_start) {
+            return array(
+                'employee_id' => (int) $employee_id,
+                'booking_date' => (string) $booking_date,
+                'total_duration' => (int) $total_duration,
+                'summary' => 'Arbeitszeit ist ungültig gespeichert (Start/Ende).',
+                'reasons' => array('outside_working_hours' => 1),
+            );
+        }
+
+        $slot_step = 30 * 60;
+        $duration_seconds = max(1, (int) $total_duration) * 60;
+        $latest_start = $day_end - $duration_seconds;
+        $reasons = array(
+            'global_block' => 0,
+            'outside_working_hours' => 0,
+            'break' => 0,
+            'absence' => 0,
+            'booking_conflict' => 0,
+            'past_time' => 0,
+        );
+        $bookable = 0;
+        $current_date_str = current_time('Y-m-d');
+        $current_time_plus = date('H:i:s', strtotime(current_time('H:i:s') . ' +5 minutes'));
+
+        for ($current = $day_start; $current <= $latest_start; $current += $slot_step) {
+            $start_time = date('H:i:s', $current);
+            $end_time = date('H:i:s', $current + $duration_seconds);
+
+            if ($booking_date === $current_date_str && $start_time < $current_time_plus) {
+                $reasons['past_time']++;
+                continue;
+            }
+
+            $reason = $this->get_slot_block_reason($employee_id, $booking_date, $start_time, $end_time);
+            if ($reason === '') {
+                $bookable++;
+            } elseif (isset($reasons[$reason])) {
+                $reasons[$reason]++;
+            }
+        }
+
+        $labels = array(
+            'global_block' => 'globale Sperrzeit',
+            'outside_working_hours' => 'Arbeitszeit',
+            'break' => 'Pause',
+            'absence' => 'Abwesenheit/Ferien',
+            'booking_conflict' => 'bereits gebucht',
+            'past_time' => 'Vergangenheit',
+        );
+        $parts = array();
+        foreach ($reasons as $key => $count) {
+            if ($count > 0) {
+                $parts[] = $labels[$key] . ': ' . $count;
+            }
+        }
+        $summary = $bookable > 0
+            ? 'Freie Slots gefunden: ' . $bookable
+            : 'Keine Slots frei. Blockiert durch: ' . (empty($parts) ? 'unbekannt' : implode(', ', $parts));
+
+        return array(
+            'employee_id' => (int) $employee_id,
+            'booking_date' => (string) $booking_date,
+            'total_duration' => (int) $total_duration,
+            'work_start' => (string) $schedule['start_time'],
+            'work_end' => (string) $schedule['end_time'],
+            'bookable_slots' => $bookable,
+            'reasons' => $reasons,
+            'summary' => $summary,
+        );
     }
 
     private function find_first_available_employee($booking_date, $start_time, $end_time) {

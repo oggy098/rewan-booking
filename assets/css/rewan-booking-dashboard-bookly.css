@@ -1,0 +1,446 @@
+/**
+ * Rewan Booking: Bookly-Dashboard (#bookly-tbs) im WP-Admin — Anpassungen neben Bookly-Bootstrap.
+ */
+
+body.rewan-booking-admin #wpbody-content > #bookly-tbs.wrap {
+	max-width: none;
+	margin: 0;
+	padding: 10px 12px 40px;
+	background: transparent;
+	border: none;
+	border-radius: 0;
+	box-shadow: none;
+}
+
+body.rewan-booking-admin #wpbody-content > #bookly-tbs.wrap::before {
+	display: none;
+}
+
+body.rewan-booking-admin #bookly-tbs .rb-rewan-dash-chart-wrap {
+	position: relative;
+	height: 500px;
+}
+
+body.rewan-booking-admin #bookly-tbs .rb-rewan-dash-chart-wrap canvas {
+	max-height: 500px;
+}
+
+/* Buchungen: gleiche Karten-/Rahmenwirkung wie Bookly Appointments */
+body.rewan-booking-admin #bookly-tbs.rb-bk-page .card {
+	border: 1px solid rgba(0, 0, 0, 0.08);
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-bk-page .rewan-bk-bookings-filters {
+	padding-bottom: 12px;
+	margin-bottom: 12px;
+	border-bottom: 1px solid #e9ecef;
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-bk-page .rb-bk-list {
+	margin-top: 4px;
+}
+
+/* Freie Tage: Popover (Rewan jCal) */
+/* Ferien: Mitarbeiter-Auswahl (Freie Tage) — groß und gut lesbar */
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell .rb-abs-days-off-filter-label {
+	display: block;
+	font-size: 16px;
+	font-weight: 700;
+	color: #1d2327;
+	margin: 0 0 6px;
+	letter-spacing: -0.02em;
+	line-height: 1.25;
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell .rb-abs-days-off-picker-hint {
+	margin: 0 0 12px;
+	font-size: 14px;
+	line-height: 1.45;
+	color: #50575e;
+	max-width: 36em;
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell select.rb-days-off-employee-select {
+	display: block;
+	width: 100%;
+	min-height: 56px;
+	padding: 14px 44px 14px 16px;
+	font-size: 18px;
+	font-weight: 600;
+	line-height: 1.3;
+	color: #1d2327;
+	border-radius: 10px;
+	border: 2px solid #c3c4c7;
+	background-color: #fff;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+	-webkit-appearance: none;
+	-moz-appearance: none;
+	appearance: none;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 14px center;
+	background-size: 20px 20px;
+	cursor: pointer;
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell select.rb-days-off-employee-select:hover {
+	border-color: #8c8f94;
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell select.rb-days-off-employee-select:focus {
+	border-color: #2271b1;
+	outline: none;
+	box-shadow: 0 0 0 3px rgba(34, 113, 177, 0.22);
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell select.rb-days-off-employee-select option {
+	font-weight: 600;
+	font-size: 17px;
+	padding: 10px 8px;
+}
+
+/* Ferien: keinen zweiten inneren Scrollbereich */
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell .card-body,
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell #bookly-holidays-container,
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell #bookly-holidays-container .jCal-wrap {
+	overflow: visible !important;
+	overflow-y: visible !important;
+	max-height: none !important;
+	height: auto !important;
+}
+
+/* Ferien-Kalender: klare Jahres-Trennlinie vor Januar */
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell .rb-jcal-year-separator {
+	clear: both;
+	width: 100%;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 14px 0 10px;
+	color: #475569;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell .rb-jcal-year-separator::before,
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell .rb-jcal-year-separator::after {
+	content: "";
+	height: 1px;
+	background: #d6dbe3;
+	flex: 1 1 auto;
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell .rb-jcal-year-separator > span {
+	padding: 2px 8px;
+	border-radius: 999px;
+	background: #f8fafc;
+	border: 1px solid #dbe3ef;
+	color: #334155;
+}
+
+/* Ferien-Kalender: größere Touch-Flächen für Tage */
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell #bookly-holidays-container .jCalMo .day,
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell #bookly-holidays-container .jCalMo .pday {
+	min-height: 42px !important;
+	line-height: 42px !important;
+	font-size: 17px !important;
+	font-weight: 600;
+	border-radius: 8px;
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell #bookly-holidays-container .jCalMo .day {
+	touch-action: manipulation;
+	-webkit-tap-highlight-color: rgba(34, 113, 177, 0.18);
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell #bookly-holidays-container .jCalMo .dow {
+	min-height: 30px;
+	line-height: 30px;
+	font-size: 13px;
+	font-weight: 700;
+}
+
+/* Ferien-Kalender: gesunder Abstand zwischen Monaten */
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell #bookly-holidays-container .jCalMo {
+	margin-bottom: 68px !important;
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell #bookly-holidays-container .jCalMo:last-child {
+	margin-bottom: 0 !important;
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell #bookly-holidays-container .jCalMo + .jCalMo {
+	position: relative;
+	padding-top: 0;
+	border-top: 0;
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell #bookly-holidays-container .jCalMo + .jCalMo::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: -34px;
+	height: 1px;
+	background: #e6ebf2;
+}
+
+/* Ferien-Kalender: dezente Monatsüberschrift, ohne Raster-Override */
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell #bookly-holidays-container .jCalMo .jCal {
+	margin-bottom: 6px;
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell #bookly-holidays-container .jCalMo .monthName {
+	font-weight: 700;
+	letter-spacing: -0.01em;
+}
+
+body.rewan-booking-admin .bookly-popover.bookly-jcal {
+	border: 1px solid #c8d0dc;
+	border-radius: 12px;
+	background: #fff;
+	box-shadow: 0 10px 28px rgba(15, 23, 42, 0.1), 0 1px 3px rgba(15, 23, 42, 0.06);
+	overflow: visible;
+}
+
+/* Pfeil aus: sonst kollidiert er oft unsauber mit Rahmen und Radius */
+body.rewan-booking-admin .bookly-popover.bookly-jcal .arrow {
+	display: none !important;
+}
+
+body.rewan-booking-admin .bookly-popover.bookly-jcal .popover-header {
+	display: none !important;
+}
+
+body.rewan-booking-admin .bookly-popover.bookly-jcal .popover-body {
+	min-width: min(100vw - 32px, 280px);
+	max-width: min(100vw - 24px, 360px);
+	max-height: min(76vh, 520px);
+	overflow-x: hidden;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+	text-align: left;
+	padding: 0;
+	margin: 0;
+	background: #fff;
+	border-radius: 11px;
+	box-sizing: border-box;
+}
+
+body.rewan-booking-admin .rb-jcal-pop {
+	padding: 12px 12px 12px;
+	background: #fff;
+	box-sizing: border-box;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__hero {
+	margin: 0 0 12px;
+	padding: 10px 12px;
+	background: #f1f5f9;
+	border: 1px solid #dce3ed;
+	border-radius: 10px;
+	box-sizing: border-box;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__title {
+	margin: 0;
+	font-size: 18px;
+	font-weight: 700;
+	line-height: 1.25;
+	color: #0f172a;
+	letter-spacing: -0.02em;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__intro {
+	margin: 6px 0 0;
+	font-size: 12px;
+	line-height: 1.35;
+	color: #64748b;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__employee {
+	margin: 10px 0 0;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 14px;
+	font-weight: 600;
+	color: #334155;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__employee-dot {
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	flex: 0 0 12px;
+	box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+body.rewan-booking-admin .rb-jcal-pop__employee-label {
+	color: #64748b;
+	font-weight: 600;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__section {
+	margin: 0 0 10px;
+	padding: 10px 12px 10px;
+	background: #f8fafc;
+	border: 1px solid #dce3ed;
+	border-radius: 10px;
+	box-sizing: border-box;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__section--soft {
+	background: #fff;
+	border-color: #d1dae6;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__section-title {
+	margin: 0 0 8px;
+	font-size: 14px;
+	font-weight: 700;
+	color: #1e293b;
+	letter-spacing: -0.01em;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__section-hint {
+	margin: 0 0 6px;
+	font-size: 11px;
+	line-height: 1.35;
+	color: #64748b;
+}
+
+body.rewan-booking-admin .rb-jcal-pop .btn-primary.btn-block {
+	width: 100%;
+	margin: 0;
+	min-height: 44px;
+	font-size: 15px;
+	font-weight: 600;
+	border-radius: 10px;
+	padding-top: 10px;
+	padding-bottom: 10px;
+	box-shadow: 0 2px 6px rgba(34, 113, 177, 0.2);
+}
+
+body.rewan-booking-admin .rb-jcal-pop__divider {
+	display: none;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__lab {
+	display: block;
+	font-size: 13px;
+	font-weight: 600;
+	margin-bottom: 6px;
+	color: #475569;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__times {
+	margin-bottom: 10px;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 10px;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__times .form-control {
+	min-height: 44px;
+	font-size: 16px;
+	border-radius: 8px;
+	padding: 8px 10px;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__times .col {
+	min-width: 0;
+	padding: 0 !important;
+	max-width: 100%;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__footer {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	margin-top: 8px;
+	padding-top: 10px;
+	border-top: 1px solid #eef2f7;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__footer .rb-jcal-btn-clear {
+	margin-right: auto;
+	padding-left: 0;
+	font-size: 14px;
+	color: #b45309;
+	text-decoration: none;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__footer .rb-jcal-btn-clear:hover,
+body.rewan-booking-admin .rb-jcal-pop__footer .rb-jcal-btn-clear:focus {
+	color: #92400e;
+	text-decoration: underline;
+}
+
+body.rewan-booking-admin .rb-jcal-pop__footer .rb-jcal-btn-close {
+	min-height: 40px;
+	padding-left: 16px;
+	padding-right: 16px;
+	border-radius: 8px;
+	font-weight: 600;
+	font-size: 14px;
+}
+
+@media (max-width: 480px) {
+	body.rewan-booking-admin .rb-jcal-pop {
+		padding: 10px;
+	}
+
+	body.rewan-booking-admin .rb-jcal-pop__title {
+		font-size: 17px;
+	}
+
+	body.rewan-booking-admin .rb-jcal-pop__times {
+		grid-template-columns: 1fr;
+	}
+}
+
+/* Ferien: ohne Bookly — Bookly-ähnliche Buttons + Popover-Shim */
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell .btn-default {
+	background: #f6f7f7;
+	border: 1px solid #c3c4c7;
+	color: #2c3338;
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell .btn-default:hover {
+	background: #f0f0f1;
+	border-color: #8c8f94;
+}
+
+body.rewan-booking-admin #bookly-tbs.rb-abs-days-off-shell .rb-jcal-nav-chevron {
+	display: inline-block;
+	font-size: 22px;
+	line-height: 1;
+	font-weight: 700;
+	vertical-align: middle;
+}
+
+body.rewan-booking-admin .bookly-popover.bookly-jcal.rb-jcal-popover-shim {
+	display: block;
+	max-width: min(360px, calc(100vw - 24px));
+	border: 1px solid rgba(15, 23, 42, 0.12);
+	border-radius: 12px;
+	box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+	background: #fff;
+	padding: 0;
+}
+
+body.rewan-booking-admin .bookly-popover.bookly-jcal.rb-jcal-popover-shim .arrow,
+body.rewan-booking-admin .bookly-popover.bookly-jcal.rb-jcal-popover-shim .popover-header {
+	display: none;
+}
+
+body.rewan-booking-admin .bookly-popover.bookly-jcal.rb-jcal-popover-shim .popover-body {
+	padding: 0;
+	margin: 0;
+}

@@ -1,8 +1,61 @@
 # Rewan Booking
 
-WordPress-Plugin für das **Buchungssystem des Barbershop Rewan** ([barbershop-rewan.ch](https://barbershop-rewan.ch/)). Kunden buchen Dienstleistungen und Mitarbeiter über ein Formular auf der Website; die Verwaltung erfolgt im WordPress-Admin.
+Eigenes WordPress-Buchungssystem für den Barbershop. Kunden buchen auf der Website Dienstleistung, Mitarbeiter und Uhrzeit. Der Salon verwaltet Termine im WordPress-Admin, im dunklen Gold-Look der Seite.
 
-**Version:** 1.0.0 · **Lizenz:** GPL-2.0 · **Textdomain:** `rewan-booking`
+**Version:** 1.3.0 · **Lizenz:** GPL-2.0 · **Shortcode:** `[rewan_booking_form]`
+
+Repository: [github.com/oggy098/rewan-booking](https://github.com/oggy098/rewan-booking)
+
+---
+
+## Was das Plugin kann
+
+- Buchungsformular auf der Website, dunkel mit Gold
+- Freie Zeiten alle 30 Minuten, passend zur Dauer der Dienstleistung
+- E-Mail an Kunde, Mitarbeiter und eine Benachrichtigungsadresse
+- Admin ohne Bookly: Dashboard, Kalender, Buchungen, Öffnungszeiten, Sperrzeit, Ferien, Dienstleistungen, Mitarbeiter
+- Update über GitHub, ohne bestehende Buchungen zu löschen
+
+Bookly wird nicht mehr geladen. Das Plugin kann allein laufen.
+
+---
+
+## Admin
+
+| Bereich | Seiten |
+| --- | --- |
+| Heute | Dashboard, Kalender, Buchungen |
+| Zeiten | Öffnungszeiten, Sperrzeit, Ferien |
+| Angebot | Dienstleistungen, Mitarbeiter |
+
+**Öffnungszeiten** sind der Rahmen: pro Wochentag geöffnet oder zu, von und bis.
+
+**Slots** kommen aus der Arbeitszeit der Person, aber nur innerhalb der Öffnung. Neue Mitarbeiter starten mit „Arbeitet in den Öffnungszeiten“. Bestehende Mitarbeiter behalten ihre eigenen Zeiten. Pause, Sperrzeit, Ferien und schon gebuchte Termine fallen danach weg.
+
+---
+
+## Installation
+
+1. Ordner `rewan-booking` nach `wp-content/plugins/` kopieren.
+2. Plugin **Rewan Booking** aktivieren. Tabellen werden angelegt, vorhandene Einträge bleiben.
+3. Eine Seite mit dem Shortcode `[rewan_booking_form]` anlegen.
+4. Öffnungszeiten, Dienstleistungen, Mitarbeiter und die Benachrichtigungs-E-Mail pflegen.
+
+Voraussetzung: WordPress mit PHP und eine funktionierende `wp_mail`-Einrichtung, wenn E-Mails rausgehen sollen.
+
+---
+
+## Update, ohne Einträge zu verlieren
+
+Buchungen, Dienstleistungen, Mitarbeiter, Zeiten und Einstellungen liegen in der WordPress-Datenbank. Ein Update ersetzt nur Dateien im Plugin-Ordner.
+
+1. In `rewan-booking.php` die Zeile `Version:` und `REWAN_BOOKING_VERSION` gemeinsam erhöhen, zum Beispiel `1.3.1`.
+2. Nach `main` pushen.
+3. In WordPress unter **Dashboard → Aktualisierungen** prüfen. WordPress übernimmt die neue Version und lässt die Datenbankeinträge stehen.
+
+Ist das Repo öffentlich, braucht es keinen GitHub-Token. Ist es privat, im Plugin-Dashboard einen Token mit Leserecht auf dieses Repo speichern.
+
+Die Version **1.3.0** einmal per Datei-Upload auf die Website legen, damit die Update-Funktion dort ankommt. Danach reichen Push und die höhere Versionsnummer.
 
 ---
 
@@ -10,79 +63,24 @@ WordPress-Plugin für das **Buchungssystem des Barbershop Rewan** ([barbershop-r
 
 ```
 rewan-booking/
-├── rewan-booking.php              # Plugin-Hauptdatei (Header, Konstanten, Hooks)
+├── rewan-booking.php
 ├── includes/
-│   ├── class-rewan-booking-activator.php   # Aktivierung: DB-Tabellen, Standarddaten
-│   ├── class-rewan-booking-admin.php       # Admin-Menü, Seiten, Formular-Verarbeitung
-│   └── class-rewan-booking-frontend.php    # Shortcode, Buchungsformular, AJAX, E-Mails
-├── assets/
-│   ├── css                        # optional: zusätzliche Styles (siehe Hinweis unten)
-│   └── js                         # optional: zusätzliche Skripte
-└── README.md
+│   ├── class-rewan-booking-activator.php   # Tabellen, Update ohne Datenverlust
+│   ├── class-rewan-booking-admin.php       # Admin-Seiten
+│   ├── class-rewan-booking-frontend.php    # Formular, Slots, E-Mails
+│   ├── class-rewan-booking-schedule.php    # Öffnung und wirksame Arbeitszeit
+│   ├── class-rewan-booking-updater.php     # Update von GitHub main
+│   └── rewan-booking-calendar-bookly.php   # Ferien-Kalender, ohne Bookly-Plugin
+└── assets/css, assets/js
 ```
 
-### Dateien im Überblick
+Tabellen (Präfix in der Regel `wp_`):
 
-| Bereich | Datei | Aufgabe |
-|--------|--------|---------|
-| Bootstrap | `rewan-booking.php` | Lädt Klassen, registriert Aktivierungshook und `plugins_loaded` |
-| Datenbank | `class-rewan-booking-activator.php` | Erstellt Tabellen mit `dbDelta`, fügt Beispiel-Dienstleistungen und -Mitarbeiter ein |
-| Backend | `class-rewan-booking-admin.php` | Dashboard, Kalender, CRUD für Services, Mitarbeiter, Abwesenheiten, Buchungen |
-| Frontend | `class-rewan-booking-frontend.php` | Shortcode `[rewan_booking_form]`, Zeitslot-AJAX, Buchungsabschluss, Benachrichtigungen |
-
-Bei Aktivierung werden folgende Tabellen mit Präfix `wp_` (bzw. deinem `$table_prefix`) angelegt:
-
-- `rewan_booking_services` — Dienstleistungen (Name, Beschreibung, Bild-URL, Preis, Dauer, aktiv)
-- `rewan_booking_employees` — Mitarbeiter (Name, E-Mail, Bild, aktiv)
-- `rewan_booking_employee_hours` — Arbeitszeiten pro Wochentag
-- `rewan_booking_employee_breaks` — Pausen pro Wochentag
-- `rewan_booking_employee_absences` — Abwesenheiten / Urlaub / Sondertitel
-- `rewan_booking_bookings` — Buchungen inkl. Kundendaten, Zeiten, Preis, Status, Zahlungsart
-
----
-
-## Funktionen und Eigenschaften
-
-### Öffentliche Website
-
-- **Shortcode:** `[rewan_booking_form]` — Buchungsformular in beliebige Seite/Beitrag einbinden
-- Auswahl **Dienstleistung(en)**, **Mitarbeiter**, **Datum**; freie **Zeitslots** per **AJAX** (`rewan_booking_get_slots`) unter Berücksichtigung von Arbeitszeiten, Pausen und Abwesenheiten
-- Responsives UI mit integriertem Styling (dunkles Theme, goldene Akzente)
-- Nach erfolgreicher Buchung: **E-Mail an Kunde**, an **Mitarbeiter** und optional an die im Admin hinterlegte **Benachrichtigungs-E-Mail**
-
-### WordPress-Admin („Rewan Booking“)
-
-- **Dashboard:** Kennzahlen (Termine heute/Woche/Monat, Umsatz, Stornos), nächste Termine, Verteilung pro Mitarbeiter, Einstellung Benachrichtigungs-E-Mail
-- **Kalender:** Übersicht der Termine
-- **Dienstleistungen:** anlegen, bearbeiten, löschen (Preis in CHF, Dauer in Minuten, optional Bild-URL)
-- **Mitarbeiter:** Stammdaten, Arbeitszeiten und Pausen pro Wochentag
-- **Abwesenheiten:** Einträge und Schnellaktionen (z. B. freier Tag)
-- **Buchungen:** Liste, Bearbeitung, Löschen; Status (z. B. bestätigt / storniert) und Zahlungsart (z. B. vor Ort)
-
-### Technik
-
-- WordPress-APIs: `$wpdb`, Nonces, `admin_post` / `admin_post_nopriv`, `wp_ajax` / `wp_ajax_nopriv`, `wp_mail`
-- Keine Composer-Abhängigkeiten; klassisches PHP in einer Plugin-Struktur
-
----
-
-## Installation
-
-1. Ordner `rewan-booking` nach `wp-content/plugins/` kopieren (oder als ZIP unter **Plugins → Installieren → Hochladen**).
-2. Plugin **Rewan Booking** aktivieren — Tabellen werden automatisch erstellt.
-3. Eine Seite anlegen und den Shortcode `[rewan_booking_form]` einfügen.
-4. Unter **Rewan Booking** Dienstleistungen, Mitarbeiter und E-Mail für Benachrichtigungen pflegen.
-
-Voraussetzungen: WordPress mit PHP und eine funktionierende E-Mail-Konfiguration (für `wp_mail`), falls Benachrichtigungen genutzt werden.
-
----
-
-## Hinweis zu `assets/`
-
-Im Repository sind unter `assets/css` und `assets/js` Platzhalter vorgesehen. Das Formular-Styling liegt überwiegend **inline** in `class-rewan-booking-frontend.php`. Zusätzliche Dateien kannst du bei Bedarf ergänzen und in den Klassen per `wp_enqueue_*` einbinden.
-
----
-
-## Repository
-
-https://github.com/oggy098/rewan-booking
+- `rewan_booking_services`
+- `rewan_booking_employees`
+- `rewan_booking_employee_hours`
+- `rewan_booking_employee_breaks`
+- `rewan_booking_employee_absences`
+- `rewan_booking_bookings`
+- `rewan_booking_global_week_schedule` — wiederkehrende Sperrzeiten
+- `rewan_booking_opening_hours` — Laden-Öffnungszeiten
