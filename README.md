@@ -2,7 +2,7 @@
 
 Eigenes WordPress-Buchungssystem für den Barbershop. Kunden buchen auf der Website Dienstleistung, Mitarbeiter und Uhrzeit. Der Salon verwaltet Termine im WordPress-Admin, im dunklen Gold-Look der Seite.
 
-**Version:** 1.3.17 · **Lizenz:** GPL-2.0 · **Shortcode:** `[rewan_booking_form]`
+**Version:** 1.3.18 · **Lizenz:** GPL-2.0 · **Shortcode:** `[rewan_booking_form]`
 
 Repository: [github.com/oggy098/rewan-booking](https://github.com/oggy098/rewan-booking)
 

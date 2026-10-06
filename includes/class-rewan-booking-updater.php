@@ -172,7 +172,7 @@ class Rewan_Booking_Updater {
             return null;
         }
         $data = array('version' => $version);
-        set_transient('rewan_booking_remote_version', $data, 6 * HOUR_IN_SECONDS);
+        set_transient('rewan_booking_remote_version', $data, 15 * MINUTE_IN_SECONDS);
         return $data;
     }
 

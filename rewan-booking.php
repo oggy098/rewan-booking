@@ -3,7 +3,7 @@
  * Plugin Name: Rewan Booking
  * Plugin URI: https://barbershop-rewan.ch/
  * Description: Eigenes Buchungssystem für Barbershop Rewan.
- * Version: 1.3.17
+ * Version: 1.3.18
  * Author: Oguz Bektas
  * Author URI: https://barbershop-rewan.ch/
  * License: GPL2
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('REWAN_BOOKING_VERSION', '1.3.17');
+define('REWAN_BOOKING_VERSION', '1.3.18');
 define('REWAN_BOOKING_FILE', __FILE__);
 define('REWAN_BOOKING_PATH', plugin_dir_path(__FILE__));
 define('REWAN_BOOKING_URL', plugin_dir_url(__FILE__));
