@@ -16,6 +16,8 @@ class Rewan_Booking_Frontend {
 
         add_action('wp_ajax_rewan_booking_get_slots', array($this, 'ajax_get_slots'));
         add_action('wp_ajax_nopriv_rewan_booking_get_slots', array($this, 'ajax_get_slots'));
+        add_action('wp_ajax_rewan_booking_closed_days', array($this, 'ajax_closed_days'));
+        add_action('wp_ajax_nopriv_rewan_booking_closed_days', array($this, 'ajax_closed_days'));
     }
 
     /**
@@ -137,6 +139,16 @@ class Rewan_Booking_Frontend {
 
         $success = isset($_GET['booking']) && $_GET['booking'] === 'success';
         $error = isset($_GET['booking_error']) ? sanitize_text_field(wp_unslash($_GET['booking_error'])) : '';
+        $receipt = null;
+        if ($success && isset($_GET['receipt'])) {
+            $receipt_token = preg_replace('/[^A-Za-z0-9]/', '', (string) wp_unslash($_GET['receipt']));
+            $stored_receipt = $receipt_token !== '' ? get_transient('rewan_booking_receipt_' . $receipt_token) : false;
+            if (is_array($stored_receipt)) {
+                $receipt = $stored_receipt;
+            }
+        }
+        $shop = class_exists('Rewan_Booking_Mail') ? Rewan_Booking_Mail::shop() : array('name' => 'Barbershop Rewan');
+        $book_again_url = remove_query_arg(array('booking', 'booking_error', 'receipt'));
 
         $min_date = current_time('Y-m-d');
         $ajax_nonce = wp_create_nonce('rewan_booking_slots_nonce');
@@ -334,6 +346,101 @@ class Rewan_Booking_Frontend {
 
 .rb-next-btn[hidden] {
     display: none;
+}
+
+.rb-back-btn {
+    display: inline-flex;
+    margin: 0 0 14px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #d4af37;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.rb-assign-note {
+    margin: 14px 0 0;
+    color: #efe7d3;
+    font-size: 15px;
+}
+
+.rb-confirm {
+    max-width: 520px;
+    margin: 0 auto;
+}
+
+.rb-confirm p {
+    color: #cbbfa9;
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+.rb-confirm-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 18px;
+}
+
+.rb-confirm-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 54px;
+    margin: 0;
+    padding: 14px 16px;
+    box-sizing: border-box;
+    border-radius: 16px;
+    border: 1px solid rgba(212,175,55,0.5);
+    background: rgba(212,175,55,0.08);
+    color: #f6edd4;
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.2;
+    text-align: center;
+    text-decoration: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.rb-confirm-btn svg {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+}
+
+.rb-confirm-btn.is-primary {
+    color: #16120a;
+    border-color: transparent;
+    background: linear-gradient(180deg, #e8c45a 0%, #c4961f 100%);
+    box-shadow: 0 10px 22px rgba(212,175,55,0.2);
+}
+
+.rb-confirm-btn:hover {
+    filter: brightness(1.08);
+}
+
+.rb-confirm-btn:focus-visible {
+    outline: 2px solid #e0b941;
+    outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .rb-confirm-btn {
+        transition: none;
+    }
+}
+
+.rb-again {
+    display: inline-block;
+    margin-top: 14px;
+    color: #d4af37;
+    font-weight: 700;
+    text-decoration: none;
 }
 
 /* --- 3. Dienstleistungen --- */
@@ -751,7 +858,10 @@ class Rewan_Booking_Frontend {
         padding: 20px;
     }
     .rb-employee-img {
-        height: 280px; /* Auf Mobile leicht verkleinert */
+        height: 168px;
+    }
+    .rb-sticky-message {
+        display: none;
     }
     .rb-summary {
         padding: 24px 20px;
@@ -818,6 +928,12 @@ class Rewan_Booking_Frontend {
     background: transparent;
     border: none;
     color: #fff;
+}
+
+.ui-datepicker.rb-datepicker-ui td.ui-state-disabled span,
+.ui-datepicker.rb-datepicker-ui td.rb-day-closed span {
+    opacity: 0.28;
+    text-decoration: line-through;
 }
 
 .ui-datepicker.rb-datepicker-ui .ui-datepicker-title {
@@ -1020,12 +1136,47 @@ class Rewan_Booking_Frontend {
 
             <div class="rb-shell">
                 <div class="rb-top">
-                    <span class="rb-badge">Barbershop Rewan</span>
+                    <span class="rb-badge"><?php echo esc_html($shop['name']); ?></span>
                     <h2 class="rb-headline">Termin buchen</h2>
-                    <p class="rb-sub">Wähle deine Services, deinen Barber und sichere dir nur freie Zeiten. Zahlung erfolgt vor Ort.</p>
-                    <div id="rb_guidance" class="rb-guidance">Starte mit Schritt 1: Wähle deine gewünschte Dienstleistung.</div>
+                    <?php if ($receipt) : ?>
+                        <p class="rb-sub">Dein Termin ist gebucht. Die Bestätigung geht per E-Mail raus.</p>
+                    <?php else : ?>
+                        <p class="rb-sub">Wähle eine Dienstleistung, deinen Barber und eine freie Zeit. Zahlung erfolgt vor Ort.</p>
+                        <div id="rb_guidance" class="rb-guidance">Wähle eine Dienstleistung.</div>
+                    <?php endif; ?>
                 </div>
 
+                <?php if ($receipt) : ?>
+                    <div class="rb-content">
+                        <div class="rb-panel rb-confirm">
+                            <h3>Termin gebucht</h3>
+                            <p>Danke. Die Angaben stehen auch in der E-Mail. Schau bei Bedarf im Spam-Ordner nach.</p>
+                            <div class="rb-summary">
+                                <h3>Zusammenstellung</h3>
+                                <div class="rb-summary-row"><span>Dienstleistung</span><strong><?php echo esc_html($receipt['services']); ?></strong></div>
+                                <div class="rb-summary-row"><span>Dauer</span><strong><?php echo esc_html($receipt['duration']); ?> Min</strong></div>
+                                <div class="rb-summary-row"><span>Preis</span><strong><?php echo esc_html($receipt['price']); ?></strong></div>
+                                <div class="rb-summary-row"><span>Barber</span><strong><?php echo esc_html($receipt['employee']); ?></strong></div>
+                                <div class="rb-summary-row"><span>Datum</span><strong><?php echo esc_html($receipt['date']); ?></strong></div>
+                                <div class="rb-summary-row"><span>Uhrzeit</span><strong><?php echo esc_html($receipt['time']); ?></strong></div>
+                            </div>
+                            <div class="rb-confirm-actions">
+                                <button type="button" class="rb-confirm-btn is-primary" id="rb_download_image">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><path d="M21 15l-5-5L5 21"></path></svg>
+                                    <span>Termin als Bild speichern</span>
+                                </button>
+                                <a class="rb-confirm-btn" href="<?php echo esc_url(home_url('/')); ?>">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8"></path><path d="M5 10v10h14V10"></path></svg>
+                                    <span>Zurück zur Startseite</span>
+                                </a>
+                                <a class="rb-confirm-btn" href="<?php echo esc_url($book_again_url); ?>">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18M12 14v4M10 16h4"></path></svg>
+                                    <span>Weiteren Termin buchen</span>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                <?php else : ?>
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="rewan-booking-form">
                     <input type="hidden" name="action" value="rewan_booking_submit">
                     <input type="hidden" name="selected_slot" id="rb_selected_slot" value="">
@@ -1071,8 +1222,9 @@ class Rewan_Booking_Frontend {
                             </div>
 
                             <div class="rb-panel" id="rb-step-employee">
+                                <button type="button" class="rb-back-btn" data-step="services">Zurück</button>
                                 <h3>2. Mitarbeiter wählen</h3>
-                                <p class="rb-step-help">Danach den gewünschten Barber auswählen.</p>
+                                <p class="rb-step-help">Wähle einen Barber oder „Egal wer“.</p>
                                 <div class="rb-employee-grid">
                                     <?php foreach ($employees as $employee) : ?>
                                         <label class="rb-employee-card">
@@ -1094,10 +1246,10 @@ class Rewan_Booking_Frontend {
                                     <label class="rb-employee-card">
                                         <input type="radio" name="rb_employee_choice" value="general" class="rb-employee-radio">
                                         <span class="rb-employee-box">
-                                            <div class="rb-employee-img" style="display:flex;align-items:center;justify-content:center;color:#d4af37;font-weight:700;font-size:60px;">A</div>
+                                            <div class="rb-employee-img" style="display:flex;align-items:center;justify-content:center;color:#d4af37;font-weight:700;font-size:32px;">Egal</div>
                                             <span>
-                                                <span class="rb-employee-name">Allgemein</span>
-                                                <span class="rb-employee-note">Erster freier Mitarbeiter</span>
+                                                <span class="rb-employee-name">Egal wer</span>
+                                                <span class="rb-employee-note">Erster freier Barber</span>
                                             </span>
                                         </span>
                                     </label>
@@ -1106,8 +1258,9 @@ class Rewan_Booking_Frontend {
                             </div>
 
                             <div class="rb-panel" id="rb-step-slots">
+                                <button type="button" class="rb-back-btn" data-step="employee">Zurück</button>
                                 <h3>3. Datum & freie Zeiten</h3>
-                                <p class="rb-step-help">Datum wählen und eine freie Zeit antippen.</p>
+                                <p class="rb-step-help">Datum wählen und eine freie Zeit antippen. Geschlossene Tage sind ausgegraut.</p>
                                 <div class="rb-field rb-date-field">
                                     <label class="rb-label" for="booking_date_display">Datum</label>
                                     <input type="text" id="booking_date_display" class="rb-input rb-date-input" inputmode="none" autocomplete="off" value="<?php echo esc_attr(date_i18n('d/m/Y', strtotime($min_date))); ?>" placeholder="dd/mm/jjjj" required>
@@ -1119,10 +1272,12 @@ class Rewan_Booking_Frontend {
                                 </div>
 
                                 <div id="rb-slots" class="rb-slots"></div>
+                                <p class="rb-assign-note" id="rb-assign-note" hidden></p>
                                 <button type="button" class="rb-next-btn" id="rb-next-to-contact" hidden>Weiter zu deinen Daten</button>
                             </div>
 
                         <div class="rb-panel" id="rb-step-contact">
+                            <button type="button" class="rb-back-btn" data-step="slots">Zurück</button>
                             <h3>4. Deine Daten</h3>
                             <p class="rb-step-help">Zum Schluss Name, E-Mail und Telefon ausfüllen.</p>
                             <div class="rb-field">
@@ -1149,7 +1304,7 @@ class Rewan_Booking_Frontend {
                                 <h3>Zusammenstellung</h3>
 
                                 <div class="rb-summary-row">
-                                    <span>Services</span>
+                                    <span>Dienstleistung</span>
                                     <strong id="rb_summary_services">Noch nichts gewählt</strong>
                                 </div>
 
@@ -1204,8 +1359,9 @@ class Rewan_Booking_Frontend {
                         </div>
                     </div>
                 </form>
+                <?php endif; ?>
             </div>
-            <?php if ($success) : ?>
+            <?php if ($success && !$receipt) : ?>
                 <div id="rb_success_modal" class="rb-success-modal">
                     <div class="rb-success-card">
                         <h4>Termin erfolgreich gebucht</h4>
@@ -1214,19 +1370,27 @@ class Rewan_Booking_Frontend {
                     </div>
                 </div>
             <?php endif; ?>
+            <?php if (!$receipt) : ?>
             <div id="rb_sticky_bar" class="rb-sticky-bar">
                 <div class="rb-sticky-top">
                     <span id="rb_sticky_services" class="rb-sticky-services">Noch nichts gewählt</span>
                     <span id="rb_sticky_meta" class="rb-sticky-meta">0 Min · 0.00 CHF</span>
                 </div>
-                <div id="rb_sticky_message" class="rb-sticky-message">Starte mit Schritt 1: Wähle deine gewünschte Dienstleistung.</div>
+                <div id="rb_sticky_message" class="rb-sticky-message">Wähle eine Dienstleistung.</div>
             </div>
+            <?php endif; ?>
 
             <script>
+                const bookingWasSuccessful = <?php echo $success ? 'true' : 'false'; ?>;
                 document.addEventListener('DOMContentLoaded', function () {
                     const ajaxUrl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
                     const ajaxNonce = <?php echo wp_json_encode($ajax_nonce); ?>;
-                    const bookingWasSuccessful = <?php echo $success ? 'true' : 'false'; ?>;
+                    let stepOverride = '';
+                    let slotAssignees = {};
+                    let closedWeekdays = [];
+                    let closedDates = [];
+                    let holidayJump = false;
+                    let allowScroll = false;
 
                     const serviceCheckboxes = document.querySelectorAll('.rb-service-checkbox');
                     const employeeRadios = document.querySelectorAll('.rb-employee-radio');
@@ -1296,7 +1460,10 @@ class Rewan_Booking_Frontend {
                             return '-';
                         }
                         if (checked.value === 'general') {
-                            return 'Allgemein';
+                            if (selectedSlotInput.value && slotAssignees[selectedSlotInput.value]) {
+                                return slotAssignees[selectedSlotInput.value];
+                            }
+                            return 'Egal wer';
                         }
                         return checked.dataset.name || '-';
                     }
@@ -1353,16 +1520,16 @@ class Rewan_Booking_Frontend {
                     }
 
                     function getCurrentStep() {
+                        if (stepOverride) {
+                            return stepOverride;
+                        }
                         if (!hasSelectedService()) {
                             return 'services';
                         }
                         if (!hasSelectedEmployee()) {
                             return 'employee';
                         }
-                        if (!hasSelectedDate() || !hasSelectedSlot()) {
-                            return 'slots';
-                        }
-                        return 'contact';
+                        return 'slots';
                     }
 
                     function updateVisibleStep() {
@@ -1383,7 +1550,7 @@ class Rewan_Booking_Frontend {
                         });
 
                         const activePanel = stepMap[currentStep];
-                        if (activePanel) {
+                        if (allowScroll && activePanel) {
                             smoothScrollTo(activePanel);
                         }
                     }
@@ -1425,18 +1592,18 @@ class Rewan_Booking_Frontend {
                         const slotReady = hasSelectedSlot();
 
                         if (!serviceReady) {
-                            setGuidanceMessage('Starte mit Schritt 1: Wähle deine gewünschte Dienstleistung.');
+                            setGuidanceMessage('Wähle eine Dienstleistung.');
                             return;
                         }
                         if (!hasSelectedEmployee()) {
-                            setGuidanceMessage('Gewählte Dienstleistung: ' + names.join(', ') + '. Nächster Schritt: Wähle jetzt deinen Barber.');
+                            setGuidanceMessage(names.join(', ') + '. Jetzt den Barber wählen.');
                             return;
                         }
                         if (!dateReady || !slotReady) {
-                            setGuidanceMessage('Ausgewählt: ' + names.join(', ') + ' bei ' + employeeText + '. Jetzt Datum und freie Uhrzeit wählen.');
+                            setGuidanceMessage(names.join(', ') + ' bei ' + employeeText + '. Jetzt Datum und eine freie Zeit wählen.');
                             return;
                         }
-                        setGuidanceMessage('Perfekt: ' + names.join(', ') + ' bei ' + employeeText + ' um ' + selectedSlotInput.value + '. Jetzt nur noch deine Daten eintragen und Termin buchen.');
+                        setGuidanceMessage(names.join(', ') + ' bei ' + employeeText + ' um ' + selectedSlotInput.value + '. Jetzt Name, E-Mail und Telefon eintragen.');
                     }
 
                     function updateStickySummary(names, totalDuration, totalPrice, dateText, timeText, employeeText) {
@@ -1488,6 +1655,12 @@ class Rewan_Booking_Frontend {
                         updateStickySummary(names, totalDuration, totalPrice, formattedDate, selectedTime, getSelectedEmployeeText());
 
                         employeeHidden.value = getSelectedEmployeeValue();
+                        const assignNote = document.getElementById('rb-assign-note');
+                        if (assignNote) {
+                            const picked = getSelectedEmployeeValue() === 'general' && selectedSlotInput.value && slotAssignees[selectedSlotInput.value];
+                            assignNote.hidden = !picked;
+                            assignNote.textContent = picked ? ('Dein Barber: ' + slotAssignees[selectedSlotInput.value] + '. Das ist der erste freie an dieser Zeit.') : '';
+                        }
                         updateGuidanceText(names);
                         updateStepFlow();
                         updateVisibleStep();
@@ -1503,23 +1676,23 @@ class Rewan_Booking_Frontend {
                         updateSummary();
                     }
 
-                    function renderSlots(slots, debugInfo) {
+                    function renderSlots(slots, emptyMessage) {
                         slotWrap.innerHTML = '';
                         selectedSlotInput.value = '';
                         summaryTime.textContent = '-';
                         updateSummary();
 
                         if (!slots.length) {
-                            let msg = 'Für diese Auswahl sind keine freien Slots verfügbar.';
-                            if (debugInfo && debugInfo.summary) {
-                                msg += ' (' + debugInfo.summary + ')';
-                            }
-                            slotInfo.textContent = msg;
+                            slotInfo.textContent = emptyMessage || 'An diesem Tag ist leider nichts mehr frei.';
+                            holidayJump = false;
                             updateStepFlow();
                             return;
                         }
 
-                        slotInfo.textContent = 'Wähle eine freie Zeit.';
+                        slotInfo.textContent = holidayJump
+                            ? 'Wegen Ferien oder Schliessung liegt der nächste freie Tag hier. Wähle eine Uhrzeit.'
+                            : 'Wähle eine freie Zeit.';
+                        holidayJump = false;
 
                         slots.forEach(function (slot) {
                             const btn = document.createElement('button');
@@ -1580,7 +1753,8 @@ class Rewan_Booking_Frontend {
                                 return;
                             }
 
-                            renderSlots(data.data.slots || [], data.data.debug || null);
+                            slotAssignees = data.data.assignees || {};
+                            renderSlots(data.data.slots || [], data.data.message || '');
                         } catch (error) {
                             resetSlots('Slots konnten nicht geladen werden.');
                             updateStepFlow();
@@ -1588,14 +1762,31 @@ class Rewan_Booking_Frontend {
                     }
 
                     serviceCheckboxes.forEach(function (checkbox) {
-                        checkbox.addEventListener('change', loadSlots);
+                        checkbox.addEventListener('change', function () {
+                            stepOverride = 'employee';
+                            loadSlots();
+                        });
                     });
 
                     employeeRadios.forEach(function (radio) {
-                        radio.addEventListener('change', loadSlots);
+                        radio.addEventListener('change', function () {
+                            stepOverride = 'slots';
+                            loadClosedDays(true).then(function (state) {
+                                if (state === 'blocked') {
+                                    resetSlots('In den nächsten Monaten ist kein freier Termin.');
+                                    return;
+                                }
+                                loadSlots();
+                            });
+                        });
                     });
 
-                    bookingDate.addEventListener('change', loadSlots);
+                    bookingDate.addEventListener('change', function () {
+                        if (stepOverride === 'contact') {
+                            stepOverride = 'slots';
+                        }
+                        loadSlots();
+                    });
                     
                     function initFrontendDatepicker() {
                         if (!window.jQuery || !window.jQuery.fn || typeof window.jQuery.fn.datepicker !== 'function') {
@@ -1621,7 +1812,16 @@ class Rewan_Booking_Frontend {
                             altField: '#booking_date',
                             altFormat: 'yy-mm-dd',
                             minDate: minDateOpt,
+                            maxDate: 120,
                             firstDay: 1,
+                            beforeShowDay: function (date) {
+                                const week = date.getDay() === 0 ? 7 : date.getDay();
+                                const iso = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+                                if (closedWeekdays.indexOf(week) !== -1 || closedDates.indexOf(iso) !== -1) {
+                                    return [false, 'rb-day-closed', 'Geschlossen'];
+                                }
+                                return [true, '', ''];
+                            },
                             monthNames: ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'],
                             monthNamesShort: ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'],
                             dayNames: ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'],
@@ -1667,34 +1867,136 @@ class Rewan_Booking_Frontend {
                         });
                     }
 
+                    function dateIsClosed(iso) {
+                        if (!iso) {
+                            return false;
+                        }
+                        const parts = iso.split('-');
+                        if (parts.length !== 3) {
+                            return false;
+                        }
+                        const date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+                        const week = date.getDay() === 0 ? 7 : date.getDay();
+                        return closedWeekdays.indexOf(week) !== -1 || closedDates.indexOf(iso) !== -1;
+                    }
+
+                    function moveOffClosedDate() {
+                        if (!bookingDate.value || !dateIsClosed(bookingDate.value) || !window.jQuery || !window.jQuery.fn.datepicker) {
+                            return false;
+                        }
+                        const start = window.jQuery.datepicker.parseDate('yy-mm-dd', bookingDate.value);
+                        for (let i = 1; i <= 120; i++) {
+                            const next = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+                            const iso = next.getFullYear() + '-' + String(next.getMonth() + 1).padStart(2, '0') + '-' + String(next.getDate()).padStart(2, '0');
+                            if (!dateIsClosed(iso)) {
+                                window.jQuery(bookingDateDisplay).datepicker('setDate', next);
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+
+                    function applyIsoDate(iso) {
+                        const parts = String(iso).split('-');
+                        if (parts.length !== 3 || !window.jQuery || !window.jQuery.fn.datepicker) {
+                            return false;
+                        }
+                        const date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+                        window.jQuery(bookingDateDisplay).datepicker('setDate', date);
+                        return true;
+                    }
+
+                    async function loadClosedDays(announce) {
+                        const formData = new URLSearchParams();
+                        formData.append('action', 'rewan_booking_closed_days');
+                        formData.append('nonce', ajaxNonce);
+                        formData.append('employee_id', getSelectedEmployeeValue());
+                        formData.append('booking_date', bookingDate.value || '');
+                        getSelectedServiceIds().forEach(function (id) {
+                            formData.append('service_ids[]', id);
+                        });
+                        let nextDate = '';
+                        try {
+                            const response = await fetch(ajaxUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                                body: formData.toString()
+                            });
+                            const data = await response.json();
+                            if (data && data.success && data.data) {
+                                closedWeekdays = (data.data.weekdays || []).map(function (value) { return Number(value); });
+                                closedDates = data.data.dates || [];
+                                nextDate = data.data.next_date || '';
+                                if (window.jQuery && window.jQuery.fn.datepicker) {
+                                    window.jQuery(bookingDateDisplay).datepicker('refresh');
+                                }
+                            }
+                        } catch (error) {
+                            closedWeekdays = [];
+                            closedDates = [];
+                        }
+                        if (nextDate && nextDate !== bookingDate.value && applyIsoDate(nextDate)) {
+                            if (announce) {
+                                holidayJump = true;
+                            }
+                            return 'moved';
+                        }
+                        if (dateIsClosed(bookingDate.value)) {
+                            if (moveOffClosedDate()) {
+                                if (announce) {
+                                    holidayJump = true;
+                                }
+                                return 'moved';
+                            }
+                            return 'blocked';
+                        }
+                        return 'same';
+                    }
+
                     initFrontendDatepicker();
+                    document.querySelectorAll('.rb-back-btn').forEach(function (button) {
+                        button.addEventListener('click', function () {
+                            stepOverride = button.getAttribute('data-step') || '';
+                            allowScroll = true;
+                            updateVisibleStep();
+                        });
+                    });
                     if (nextToEmployee) {
                         nextToEmployee.addEventListener('click', function () {
-                            smoothScrollTo(panelEmployee);
+                            stepOverride = 'employee';
+                            allowScroll = true;
+                            updateVisibleStep();
                         });
                     }
                     if (nextToSlots) {
                         nextToSlots.addEventListener('click', function () {
-                            smoothScrollTo(panelSlots);
+                            stepOverride = 'slots';
+                            allowScroll = true;
+                            updateVisibleStep();
                         });
                     }
                     if (nextToContact) {
                         nextToContact.addEventListener('click', function () {
-                            smoothScrollTo(panelContact);
+                            stepOverride = 'contact';
+                            allowScroll = true;
+                            updateVisibleStep();
                         });
                     }
 
                     updateSummary();
                     updateStepFlow();
                     updateVisibleStep();
+                    allowScroll = true;
+                    loadClosedDays();
                 });
 
 
 
-                                // html2canvas Bibliothek laden
+                                if (bookingWasSuccessful) {
                                 const script = document.createElement('script');
                                 script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
                                 document.head.appendChild(script);
+                                }
 
                                 // Funktion zum Download
                                 function setupDownload() {
@@ -1706,13 +2008,15 @@ class Rewan_Booking_Frontend {
                                         downloadBtn.style.display = 'none';
                                         return;
                                     }
-                                    downloadBtn.style.display = 'block';
+                                    if (!downloadBtn.classList.contains('rb-confirm-btn')) {
+                                        downloadBtn.style.display = 'block';
+                                    }
 
                                     downloadBtn.addEventListener('click', function() {
                                         const summaryElement = document.querySelector('.rb-summary');
                                         
                                         // Buttons für das Foto verstecken
-                                        const actionButtons = document.querySelectorAll('.rb-btn, .rb-download-btn, .rb-small');
+                                        const actionButtons = document.querySelectorAll('.rb-btn, .rb-download-btn, .rb-small, .rb-again');
                                         actionButtons.forEach(btn => btn.style.visibility = 'hidden');
                                         
                                         html2canvas(summaryElement, {
@@ -1769,16 +2073,62 @@ class Rewan_Booking_Frontend {
             wp_send_json_error(array('message' => 'Ungültige Dienstleistungen.'));
         }
 
-        $debug = array();
+        $assignees = array();
         if ($employee_id_raw === 'general') {
-            $slots = $this->get_available_slots_for_general($booking_date, $total_duration);
+            $assignees = $this->get_general_slot_assignees($booking_date, $total_duration);
+            $slots = array_keys($assignees);
         } else {
             $employee_id = (int) $employee_id_raw;
             $slots = $this->get_available_slots_for_employee($employee_id, $booking_date, $total_duration);
-            $debug = $this->build_slot_debug_info($employee_id, $booking_date, $total_duration);
         }
 
-        wp_send_json_success(array('slots' => $slots, 'debug' => $debug));
+        $message = '';
+        if (empty($slots)) {
+            $message = $this->public_empty_slot_message($employee_id_raw, $booking_date);
+        }
+
+        wp_send_json_success(array(
+            'slots' => array_values($slots),
+            'assignees' => $assignees,
+            'message' => $message,
+        ));
+    }
+
+    public function ajax_closed_days() {
+        if (
+            !isset($_POST['nonce']) ||
+            !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'rewan_booking_slots_nonce')
+        ) {
+            wp_send_json_error(array('message' => 'Sicherheitsprüfung fehlgeschlagen.'));
+        }
+
+        $employee_raw = isset($_POST['employee_id']) ? sanitize_text_field(wp_unslash($_POST['employee_id'])) : '';
+        $from = current_time('Y-m-d');
+        $until = date('Y-m-d', strtotime($from . ' +120 days'));
+        $weekdays = array();
+        for ($iso = 1; $iso <= 7; $iso++) {
+            if ($this->weekday_shut_for_choice($employee_raw, $iso)) {
+                $weekdays[] = $iso;
+            }
+        }
+
+        $service_ids = isset($_POST['service_ids']) ? array_map('intval', (array) wp_unslash($_POST['service_ids'])) : array();
+        $duration = $this->get_total_duration_by_service_ids($service_ids);
+        $requested = isset($_POST['booking_date']) ? sanitize_text_field(wp_unslash($_POST['booking_date'])) : '';
+        $search_from = $from;
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $requested) && $requested >= $from && $requested <= $until) {
+            $search_from = $requested;
+        }
+        $next_date = '';
+        if ($duration > 0 && $employee_raw !== '') {
+            $next_date = $this->next_bookable_date($employee_raw, $duration, $search_from);
+        }
+
+        wp_send_json_success(array(
+            'weekdays' => $weekdays,
+            'dates' => $this->closed_dates_for_choice($employee_raw, $from, $until),
+            'next_date' => $next_date,
+        ));
     }
 
     public function handle_booking_submission() {
@@ -1908,12 +2258,32 @@ class Rewan_Booking_Frontend {
             $customer_notes
         );
 
+        $date_obj = new DateTime($booking_date);
+        $day_names = array('Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag');
+        $date_label = $day_names[(int) $date_obj->format('w')] . ', ' . $date_obj->format('d.m.Y');
+        $time_label = substr($start_time, 0, 5) . ' – ' . substr($end_time, 0, 5);
+        $price_label = number_format((float) $total_price, 2, '.', '\'') . ' CHF';
+
+        $receipt_token = wp_generate_password(20, false, false);
+        set_transient('rewan_booking_receipt_' . $receipt_token, array(
+            'services' => implode(', ', $service_names),
+            'duration' => (string) $total_duration,
+            'price' => $price_label,
+            'employee' => (string) $employee['name'],
+            'date' => $date_label,
+            'time' => $time_label,
+        ), 30 * MINUTE_IN_SECONDS);
+
         $referer = wp_get_referer();
         if (!$referer) {
             $referer = home_url('/');
         }
+        $referer = remove_query_arg(array('booking', 'booking_error', 'receipt'), $referer);
 
-        wp_redirect(add_query_arg('booking', 'success', $referer));
+        wp_redirect(add_query_arg(array(
+            'booking' => 'success',
+            'receipt' => $receipt_token,
+        ), $referer));
         exit;
     }
 
@@ -1946,33 +2316,251 @@ class Rewan_Booking_Frontend {
         return $duration;
     }
 
-    private function get_available_slots_for_general($booking_date, $total_duration) {
+    private function get_general_slot_assignees($booking_date, $total_duration) {
         global $wpdb;
 
         $employees_table = $wpdb->prefix . 'rewan_booking_employees';
-
         $employees = $wpdb->get_results(
-            "SELECT id FROM $employees_table WHERE is_active = 1 ORDER BY id ASC",
+            "SELECT id, name FROM $employees_table WHERE is_active = 1 ORDER BY id ASC",
             ARRAY_A
         );
-
         if (empty($employees)) {
             return array();
         }
 
-        $all_slots = array();
-
+        $assignees = array();
         foreach ($employees as $employee) {
             $slots = $this->get_available_slots_for_employee((int) $employee['id'], $booking_date, $total_duration);
             foreach ($slots as $slot) {
-                $all_slots[$slot] = $slot;
+                if (!isset($assignees[$slot])) {
+                    $assignees[$slot] = (string) $employee['name'];
+                }
+            }
+        }
+        ksort($assignees);
+        return $assignees;
+    }
+
+    private function public_empty_slot_message($employee_raw, $booking_date) {
+        $employees = $this->choice_employees($employee_raw);
+        foreach ($employees as $employee) {
+            $schedule = $this->get_effective_schedule_for_date((int) $employee['id'], $booking_date);
+            if ($schedule && (int) $schedule['is_working'] === 1) {
+                return 'An diesem Tag ist leider nichts mehr frei.';
+            }
+        }
+        return 'An diesem Tag ist geschlossen.';
+    }
+
+    private function choice_employees($employee_raw) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'rewan_booking_employees';
+        if ($employee_raw !== '' && $employee_raw !== 'general' && ctype_digit((string) $employee_raw)) {
+            return $wpdb->get_results(
+                $wpdb->prepare("SELECT id, name FROM $table WHERE id = %d AND is_active = 1", (int) $employee_raw),
+                ARRAY_A
+            );
+        }
+        return $wpdb->get_results(
+            "SELECT id, name FROM $table WHERE is_active = 1 ORDER BY id ASC",
+            ARRAY_A
+        );
+    }
+
+    private function weekday_shut_for_choice($employee_raw, $iso) {
+        if ($this->weekday_has_all_day_block($iso)) {
+            return true;
+        }
+        if (class_exists('Rewan_Booking_Schedule')) {
+            $open = Rewan_Booking_Schedule::opening_row($iso);
+            if (is_array($open) && (int) $open['is_open'] !== 1) {
+                return true;
+            }
+        }
+        $employees = $this->choice_employees($employee_raw);
+        if (empty($employees)) {
+            return false;
+        }
+        $sample = $this->sample_date_for_iso($iso);
+        foreach ($employees as $employee) {
+            $schedule = $this->get_effective_schedule_for_date((int) $employee['id'], $sample);
+            if ($schedule && (int) $schedule['is_working'] === 1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function weekday_has_all_day_block($iso) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'rewan_booking_global_week_schedule';
+        $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table)));
+        if ($exists !== $table) {
+            return false;
+        }
+        $mode = $this->detect_global_weekday_mode($table);
+        $primary = ($mode === 'legacy') ? ($iso - 1) : $iso;
+        $row = $wpdb->get_row(
+            $wpdb->prepare("SELECT block_mode FROM {$table} WHERE weekday = %d", $primary),
+            ARRAY_A
+        );
+        return is_array($row) && isset($row['block_mode']) && $row['block_mode'] === 'all_day';
+    }
+
+    private function sample_date_for_iso($iso) {
+        $today = strtotime(current_time('Y-m-d') . ' 12:00:00');
+        $current = (int) date('N', $today);
+        $add = ($iso - $current + 7) % 7;
+        return date('Y-m-d', strtotime('+' . $add . ' days', $today));
+    }
+
+    /**
+     * Erster Tag ab $from mit mindestens einem freien Slot. Ferientage werden übersprungen.
+     */
+    private function next_bookable_date($employee_raw, $total_duration, $from) {
+        $total_duration = (int) $total_duration;
+        if ($total_duration <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $from)) {
+            return '';
+        }
+
+        $until = date('Y-m-d', strtotime($from . ' +120 days'));
+        $closed = array_flip($this->closed_dates_for_choice($employee_raw, $from, $until));
+        $shut = array();
+        for ($iso = 1; $iso <= 7; $iso++) {
+            if ($this->weekday_shut_for_choice($employee_raw, $iso)) {
+                $shut[$iso] = true;
             }
         }
 
-        $result = array_values($all_slots);
-        sort($result);
+        $cursor = date_create_immutable($from . ' 12:00:00', wp_timezone());
+        if (!$cursor instanceof DateTimeImmutable) {
+            return '';
+        }
 
-        return $result;
+        $specific = ($employee_raw !== 'general' && ctype_digit((string) $employee_raw));
+        $employee_id = $specific ? (int) $employee_raw : 0;
+        $open_days_checked = 0;
+
+        for ($i = 0; $i <= 120; $i++) {
+            $day = $cursor->modify('+' . $i . ' days');
+            if (!$day instanceof DateTimeImmutable) {
+                break;
+            }
+            $iso_date = $day->format('Y-m-d');
+            $week = (int) $day->format('N');
+            if (isset($shut[$week]) || isset($closed[$iso_date])) {
+                continue;
+            }
+
+            $open_days_checked++;
+            if ($open_days_checked > 40) {
+                break;
+            }
+
+            if ($specific) {
+                $slots = $this->get_available_slots_for_employee($employee_id, $iso_date, $total_duration);
+            } else {
+                $slots = $this->get_general_slot_assignees($iso_date, $total_duration);
+            }
+            if (!empty($slots)) {
+                return $iso_date;
+            }
+        }
+
+        return '';
+    }
+
+    private function closed_dates_for_choice($employee_raw, $from, $until) {
+        $employees = $this->choice_employees($employee_raw);
+        $dates = $this->expand_all_day_ranges($this->global_all_day_blocks($from, $until), $from, $until);
+        if (empty($employees)) {
+            return array_values(array_unique($dates));
+        }
+
+        $sets = array();
+        foreach ($employees as $employee) {
+            $sets[] = array_flip($this->expand_all_day_ranges(
+                $this->employee_all_day_absences((int) $employee['id'], $from, $until),
+                $from,
+                $until
+            ));
+        }
+        if (!empty($sets)) {
+            foreach (array_keys($sets[0]) as $date) {
+                $shared = true;
+                foreach ($sets as $set) {
+                    if (!isset($set[$date])) {
+                        $shared = false;
+                        break;
+                    }
+                }
+                if ($shared) {
+                    $dates[] = $date;
+                }
+            }
+        }
+        $dates = array_values(array_unique($dates));
+        sort($dates);
+        return $dates;
+    }
+
+    private function global_all_day_blocks($from, $until) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'rewan_booking_global_blocks';
+        $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table)));
+        if ($exists !== $table) {
+            return array();
+        }
+        return $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT start_date, end_date FROM {$table}
+                 WHERE is_all_day = 1 AND end_date >= %s AND start_date <= %s",
+                $from,
+                $until
+            ),
+            ARRAY_A
+        );
+    }
+
+    private function employee_all_day_absences($employee_id, $from, $until) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'rewan_booking_employee_absences';
+        return $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT start_date, end_date FROM {$table}
+                 WHERE employee_id = %d AND is_all_day = 1 AND end_date >= %s AND start_date <= %s",
+                $employee_id,
+                $from,
+                $until
+            ),
+            ARRAY_A
+        );
+    }
+
+    private function expand_all_day_ranges($rows, $from, $until) {
+        $dates = array();
+        $from_ts = strtotime($from . ' 12:00:00');
+        $until_ts = strtotime($until . ' 12:00:00');
+        if (!$from_ts || !$until_ts || !is_array($rows)) {
+            return $dates;
+        }
+        foreach ($rows as $row) {
+            $start = strtotime($row['start_date'] . ' 12:00:00');
+            $end = strtotime($row['end_date'] . ' 12:00:00');
+            if (!$start || !$end) {
+                continue;
+            }
+            if ($start < $from_ts) {
+                $start = $from_ts;
+            }
+            if ($end > $until_ts) {
+                $end = $until_ts;
+            }
+            for ($cursor = $start; $cursor <= $end; $cursor = strtotime('+1 day', $cursor)) {
+                $dates[] = date('Y-m-d', $cursor);
+            }
+        }
+        return $dates;
     }
 
     private function get_available_slots_for_employee($employee_id, $booking_date, $total_duration) {
@@ -2453,94 +3041,27 @@ class Rewan_Booking_Frontend {
         return null;
     }
 
-        private function send_booking_emails($employee, $customer_name, $customer_email, $customer_phone, $service_names, $booking_date, $start_time, $end_time, $total_price, $customer_notes) {
-            $service_list = implode(', ', $service_names);
-            $time_range = substr($start_time, 0, 5) . ' - ' . substr($end_time, 0, 5);
-
-            // Datum schön formatieren
-            $date_obj = new DateTime($booking_date);
-            $days = array('Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag');
-            $nice_date = $days[$date_obj->format('w')] . ', ' . $date_obj->format('d.m.Y');
-
-            $headers = array('Content-Type: text/html; charset=UTF-8');
-            // Betreiber-Mail aus Plugin-Einstellung laden (mit Fallback).
-            $admin_email = get_option('rewan_booking_notification_email', 'info@barbershop-rewan.ch');
-
-            // Gemeinsames E-Mail Design Basis
-            $email_style = 'font-family: Arial, sans-serif; background-color: #0a0a0a; color: #f5f1e8; padding: 40px 15px;';
-            $container_style = 'max-width: 600px; margin: 0 auto; background: #131313; border: 1px solid #d4af37; border-radius: 22px; padding: 30px;';
-            $table_style = 'width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 16px;';
-            $td_label = 'padding: 12px 0; border-bottom: 1px dashed rgba(255,255,255,0.1); color: #cbbfa9;';
-            $td_value = 'padding: 12px 0; border-bottom: 1px dashed rgba(255,255,255,0.1); text-align: right; color: #fff; font-weight: bold;';
-
-            // 1. KUNDEN-MAIL (Freundlich & Einladend)
-            $customer_html = "
-            <div style='$email_style'>
-                <div style='$container_style'>
-                    <h2 style='color: #d4af37; text-align: center; font-size: 28px; margin-top: 0;'>Dein Termin steht!</h2>
-                    <p style='text-align: center; font-size: 17px; color: #ddd4c3;'>Hallo $customer_name, vielen Dank für dein Vertrauen. Wir freuen uns darauf, dich bald bei uns im Shop begrüßen zu dürfen!</p>
-                    
-                    <table style='$table_style'>
-                        <tr><td style='$td_label'>Service</td><td style='$td_value'>$service_list</td></tr>
-                        <tr><td style='$td_label'>Datum</td><td style='$td_value'>$nice_date</td></tr>
-                        <tr><td style='$td_label'>Zeit</td><td style='$td_value'>$time_range</td></tr>
-                        <tr><td style='$td_label'>Barber</td><td style='$td_value'>{$employee['name']}</td></tr>
-                        <tr><td style='$td_label'>Preis</td><td style='$td_value'>".number_format($total_price, 2, '.', '\'')." CHF</td></tr>
-                    </table>
-
-                    <div style='background: rgba(212,175,55,0.1); border-radius: 12px; padding: 15px; margin-top: 20px; text-align: center;'>
-                        <p style='margin: 0; color: #d4af37; font-weight: bold;'>Barbershop Rewan</p>
-                        <p style='margin: 5px 0 0; font-size: 14px; color: #cbbfa9;'>Baslerstrasse 140, 5222 Umiken<br>Telefon: 078 211 88 20 <br>Web: barbershop-rewan.ch</p>
-                    </div>
-                    <p style='font-size: 12px; color: #888; text-align: center; margin-top: 25px;'>Solltest du deinen Termin nicht wahrnehmen können, gib uns bitte rechtzeitig Bescheid.</p>
-                </div>
-            </div>";
-
-            // 2. BARBER-MAIL (Motivierend)
-            $barber_html = "
-            <div style='$email_style'>
-                <div style='$container_style'>
-                    <h2 style='color: #d4af37; text-align: center; margin-top: 0;'>Hey {$employee['name']}!</h2>
-                    <p style='text-align: center; font-size: 17px;'>Du hast einen neuen Termin in deinem Kalender. Mach dich bereit für den nächsten Kunden!</p>
-                    
-                    <table style='$table_style'>
-                        <tr><td style='$td_label'>Kunde</td><td style='$td_value'>$customer_name</td></tr>
-                        <tr><td style='$td_label'>Datum</td><td style='$td_value'>$nice_date</td></tr>
-                        <tr><td style='$td_label'>Uhrzeit</td><td style='$td_value'>$time_range</td></tr>
-                        <tr><td style='$td_label'>Service</td><td style='$td_value'>$service_list</td></tr>
-                        <tr><td style='padding: 12px 0; color: #cbbfa9;'>Notiz</td><td style='padding: 12px 0; text-align: right; color: #d4af37;'>".($customer_notes ? $customer_notes : '-')."</td></tr>
-                    </table>
-                    <p style='text-align: center; color: #888; font-size: 20px;'>Telefon für Rückfragen: $customer_phone</p>
-                </div>
-            </div>";
-
-            // 3. ADMIN/BETREIBER-MAIL (Status-Update)
-            $admin_html = "
-            <div style='$email_style'>
-                <div style='$container_style'>
-                    <h2 style='color: #d4af37; text-align: center; margin-top: 0;'>Gratulation!</h2>
-                    <p style='text-align: center; font-size: 17px;'>Eine neue Buchung ist eingegangen. Das Geschäft läuft! $$$$</p>
-                    
-                    <table style='$table_style'>
-                        <tr><td style='$td_label'>Barber</td><td style='$td_value'>{$employee['name']}</td></tr>
-                        <tr><td style='$td_label'>Umsatz</td><td style='$td_value'>".number_format($total_price, 2, '.', '\'')." CHF</td></tr>
-                        <tr><td style='$td_label'>Kunde</td><td style='$td_value'>$customer_name</td></tr>
-                        <tr><td style='$td_label'>Kontakt</td><td style='$td_value'>$customer_phone</td></tr>
-                    </table>
-                    <div style='text-align: center; margin-top: 20px;'>
-                        <a href='".admin_url('admin.php?page=rewan-booking-bookings')."' style='background: #d4af37; color: #111; padding: 12px 25px; border-radius: 10px; text-decoration: none; font-weight: bold;'>Buchungen im Backend prüfen</a>
-                    </div>
-                </div>
-            </div>";
-
-            // Sendevorgänge
-            wp_mail($customer_email, 'Dein Termin bei Barbershop Rewan', $customer_html, $headers);
-            wp_mail($employee['email'], 'Neuer Job: Termin mit ' . $customer_name, $barber_html, $headers);
-            
-            if ($admin_email !== $employee['email']) {
-                wp_mail($admin_email, 'Erfolg: Neue Buchung erhalten!', $admin_html, $headers);
-            }
+    private function send_booking_emails($employee, $customer_name, $customer_email, $customer_phone, $service_names, $booking_date, $start_time, $end_time, $total_price, $customer_notes) {
+        $date_obj = new DateTime($booking_date);
+        $days = array('Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag');
+        $date_label = $days[(int) $date_obj->format('w')] . ', ' . $date_obj->format('d.m.Y');
+        $time_label = substr($start_time, 0, 5) . ' – ' . substr($end_time, 0, 5);
+        if (!class_exists('Rewan_Booking_Mail')) {
+            return;
         }
+        Rewan_Booking_Mail::send_booking(array(
+            'customer_name' => $customer_name,
+            'customer_email' => $customer_email,
+            'customer_phone' => $customer_phone,
+            'notes' => $customer_notes,
+            'service_list' => implode(', ', $service_names),
+            'date_label' => $date_label,
+            'time_label' => $time_label,
+            'employee_name' => (string) $employee['name'],
+            'employee_email' => (string) $employee['email'],
+            'price_label' => number_format((float) $total_price, 2, '.', "'") . ' CHF',
+        ));
+    }
 
     private function redirect_with_error($error_code) {
         $referer = wp_get_referer();

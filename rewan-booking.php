@@ -3,7 +3,7 @@
  * Plugin Name: Rewan Booking
  * Plugin URI: https://barbershop-rewan.ch/
  * Description: Eigenes Buchungssystem für Barbershop Rewan.
- * Version: 1.3.0
+ * Version: 1.3.17
  * Author: Oguz Bektas
  * Author URI: https://barbershop-rewan.ch/
  * License: GPL2
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('REWAN_BOOKING_VERSION', '1.3.0');
+define('REWAN_BOOKING_VERSION', '1.3.17');
 define('REWAN_BOOKING_FILE', __FILE__);
 define('REWAN_BOOKING_PATH', plugin_dir_path(__FILE__));
 define('REWAN_BOOKING_URL', plugin_dir_url(__FILE__));
@@ -35,12 +35,14 @@ define('REWAN_BOOKING_CAP_MANAGE', 'rewan_booking_manage');
 
 require_once REWAN_BOOKING_PATH . 'includes/class-rewan-booking-activator.php';
 require_once REWAN_BOOKING_PATH . 'includes/class-rewan-booking-schedule.php';
+require_once REWAN_BOOKING_PATH . 'includes/class-rewan-booking-mail.php';
 require_once REWAN_BOOKING_PATH . 'includes/class-rewan-booking-updater.php';
 require_once REWAN_BOOKING_PATH . 'includes/rewan-booking-calendar-bookly.php';
 require_once REWAN_BOOKING_PATH . 'includes/class-rewan-booking-admin.php';
 require_once REWAN_BOOKING_PATH . 'includes/class-rewan-booking-frontend.php';
 
 Rewan_Booking_Updater::init();
+Rewan_Booking_Mail::init();
 
 function rewan_booking_activate() {
     Rewan_Booking_Activator::activate();

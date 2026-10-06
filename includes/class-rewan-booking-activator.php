@@ -237,12 +237,13 @@ class Rewan_Booking_Activator {
     private static function ensure_global_week_schedule_seeded() {
         global $wpdb;
         $t = $wpdb->prefix . 'rewan_booking_global_week_schedule';
-        $count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$t}");
-        if ($count >= 7) {
-            return;
-        }
+        $existing = $wpdb->get_col("SELECT weekday FROM {$t}");
+        $have = array_map('intval', is_array($existing) ? $existing : array());
         for ($w = 1; $w <= 7; $w++) {
-            $wpdb->replace(
+            if (in_array($w, $have, true)) {
+                continue;
+            }
+            $wpdb->insert(
                 $t,
                 array(
                     'weekday' => $w,
@@ -476,20 +477,20 @@ class Rewan_Booking_Activator {
 
         $employees = array(
             array(
-                'name' => 'Reber',
-                'email' => get_option('admin_email'),
+                'name' => 'Max Muster',
+                'email' => 'max.muster@example.com',
                 'image_url' => '',
                 'is_active' => 1
             ),
             array(
-                'name' => 'Rewan',
-                'email' => get_option('admin_email'),
+                'name' => 'Lea Muster',
+                'email' => 'lea.muster@example.com',
                 'image_url' => '',
                 'is_active' => 1
             ),
             array(
-                'name' => 'Achmet',
-                'email' => get_option('admin_email'),
+                'name' => 'Sam Muster',
+                'email' => 'sam.muster@example.com',
                 'image_url' => '',
                 'is_active' => 1
             ),

@@ -23,6 +23,8 @@ class Rewan_Booking_Admin {
         add_action('edit_user_profile_update', array($this, 'save_user_profile_employee_link'));
 
         add_action('admin_post_rewan_booking_save_settings', array($this, 'handle_save_settings'));
+        add_action('admin_post_rewan_booking_save_emails', array($this, 'handle_save_emails'));
+        add_action('wp_ajax_rewan_booking_email_preview', array($this, 'ajax_email_preview'));
 
         add_action('admin_post_rewan_booking_add_service', array($this, 'handle_add_service'));
         add_action('admin_post_rewan_booking_save_service', array($this, 'handle_save_service'));
@@ -36,6 +38,7 @@ class Rewan_Booking_Admin {
         add_action('admin_post_rewan_booking_quick_day_off', array($this, 'handle_quick_day_off'));
         add_action('admin_post_rewan_booking_delete_absence', array($this, 'handle_delete_absence'));
         add_action('wp_ajax_rewan_booking_update_holidays', array($this, 'ajax_update_holidays'));
+        add_action('wp_ajax_rewan_booking_save_ferien_range', array($this, 'ajax_save_ferien_range'));
 
         add_action('admin_post_rewan_booking_save_week_schedule', array($this, 'handle_save_week_schedule'));
         add_action('admin_post_rewan_booking_save_opening_hours', array($this, 'handle_save_opening_hours'));
@@ -551,26 +554,24 @@ class Rewan_Booking_Admin {
             'rewan-booking-employees',
             array($this, 'render_employees_page')
         );
-    }
 
-    /**
-     * Grobe Kapazität in 30-Min-Slots anhand Arbeitszeiten (ohne Pause).
-     */
-    private function dashboard_employee_slot_capacity($employee_id, $ymd) {
-        $row = class_exists('Rewan_Booking_Schedule')
-            ? Rewan_Booking_Schedule::effective_for_employee((int) $employee_id, (string) $ymd)
-            : null;
-        if (!$row || (int) $row['is_working'] !== 1) {
-            return 0;
-        }
-        $start_ts = strtotime($ymd . ' ' . $row['start_time']);
-        $end_ts = strtotime($ymd . ' ' . $row['end_time']);
-        if (!$start_ts || !$end_ts || $end_ts <= $start_ts) {
-            return 0;
-        }
-        $mins = (int) round(($end_ts - $start_ts) / 60);
-        $slot_mins = 30;
-        return max(1, (int) floor($mins / $slot_mins));
+        add_submenu_page(
+            'rewan-booking',
+            __('E-Mails', 'rewan-booking'),
+            __('E-Mails', 'rewan-booking'),
+            $cap_manage,
+            'rewan-booking-emails',
+            array($this, 'render_emails_page')
+        );
+
+        add_submenu_page(
+            'rewan-booking',
+            __('Einstellungen', 'rewan-booking'),
+            __('Einstellungen', 'rewan-booking'),
+            $cap_manage,
+            'rewan-booking-settings',
+            array($this, 'render_settings_page')
+        );
     }
 
     /**
@@ -853,9 +854,7 @@ class Rewan_Booking_Admin {
         }
         global $wpdb;
         $table = $wpdb->prefix . 'rewan_booking_bookings';
-        $employees_table = $wpdb->prefix . 'rewan_booking_employees';
         $message = isset($_GET['message']) ? sanitize_text_field(wp_unslash($_GET['message'])) : '';
-        $notification_email = get_option('rewan_booking_notification_email', 'info@barbershop-rewan.ch');
 
         $today = current_time('Y-m-d');
         $now_time = current_time('H:i:s');
@@ -1010,7 +1009,7 @@ class Rewan_Booking_Admin {
 
         $next_bookings = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT id, customer_name, employee_name, booking_date, start_time
+                "SELECT id, customer_name, employee_name, services, booking_date, start_time, end_time
                  FROM $table
                  WHERE status = %s
                  AND (booking_date > %s OR (booking_date = %s AND start_time >= %s))
@@ -1024,28 +1023,6 @@ class Rewan_Booking_Admin {
             ARRAY_A
         );
 
-        $today_counts = $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT employee_id, employee_name, COUNT(*) AS total
-                 FROM $table
-                 WHERE booking_date = %s AND status = %s
-                 GROUP BY employee_id, employee_name
-                 ORDER BY total DESC, employee_name ASC",
-                $today,
-                'confirmed'
-            ),
-            ARRAY_A
-        );
-        $counts_by_emp = array();
-        foreach ($today_counts as $tc) {
-            $counts_by_emp[ (int) $tc['employee_id'] ] = (int) $tc['total'];
-        }
-
-        $all_employees = $wpdb->get_results(
-            "SELECT id, name FROM $employees_table WHERE is_active = 1 ORDER BY name ASC",
-            ARRAY_A
-        );
-
         ?>
         <div class="wrap rb-dash">
             <?php $this->render_admin_notice($message); ?>
@@ -1055,7 +1032,6 @@ class Rewan_Booking_Admin {
                     <h1><?php esc_html_e('Dashboard', 'rewan-booking'); ?></h1>
                     <p class="rb-dash__lead"><?php esc_html_e('Was heute und im gewählten Zeitraum ansteht.', 'rewan-booking'); ?></p>
                 </div>
-                <a class="button button-primary" href="<?php echo esc_url(admin_url('admin.php?page=rewan-booking-bookings&filter=today')); ?>"><?php esc_html_e('Buchungen öffnen', 'rewan-booking'); ?></a>
             </header>
 
             <div class="rb-dash__presets" role="navigation" aria-label="<?php esc_attr_e('Zeitraum', 'rewan-booking'); ?>">
@@ -1085,79 +1061,68 @@ class Rewan_Booking_Admin {
                 </a>
             </div>
 
-            <div class="rb-dash__grid">
-                <section class="rb-dash__panel">
-                    <h2><?php esc_html_e('Nächste Termine', 'rewan-booking'); ?></h2>
-                    <?php if (!empty($next_bookings)) : ?>
-                        <table class="rb-dash__table">
-                            <thead>
-                                <tr>
-                                    <th><?php esc_html_e('Wann', 'rewan-booking'); ?></th>
-                                    <th><?php esc_html_e('Kunde', 'rewan-booking'); ?></th>
-                                    <th><?php esc_html_e('Mitarbeiter', 'rewan-booking'); ?></th>
-                                    <th></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($next_bookings as $booking) : ?>
-                                    <tr>
-                                        <td><?php echo esc_html(date_i18n('D, d.m.Y', strtotime($booking['booking_date'])) . ' · ' . substr($booking['start_time'], 0, 5)); ?></td>
-                                        <td><?php echo esc_html($booking['customer_name']); ?></td>
-                                        <td><?php echo esc_html($booking['employee_name']); ?></td>
-                                        <td><a class="rb-dash__link" href="<?php echo esc_url(admin_url('admin.php?page=rewan-booking-bookings&edit_booking=' . (int) $booking['id'])); ?>"><?php esc_html_e('Öffnen', 'rewan-booking'); ?></a></td>
-                                    </tr>
+            <section class="rb-dash__panel rb-dash__upcoming">
+                <h2><?php esc_html_e('Nächste Termine', 'rewan-booking'); ?></h2>
+                <?php if (!empty($next_bookings)) : ?>
+                    <?php
+                    $tomorrow_obj = date_create_immutable($today . ' 12:00:00', wp_timezone());
+                    $tomorrow = $tomorrow_obj instanceof DateTimeImmutable ? $tomorrow_obj->modify('+1 day')->format('Y-m-d') : '';
+                    $groups = array();
+                    foreach ($next_bookings as $booking) {
+                        $groups[(string) $booking['booking_date']][] = $booking;
+                    }
+                    ?>
+                    <div class="rb-next">
+                        <?php foreach ($groups as $day => $day_bookings) : ?>
+                            <?php
+                            if ($day === $today) {
+                                $day_label = __('Heute', 'rewan-booking');
+                            } elseif ($tomorrow !== '' && $day === $tomorrow) {
+                                $day_label = __('Morgen', 'rewan-booking');
+                            } else {
+                                $day_label = date_i18n('l, d.m.Y', strtotime($day . ' 12:00:00'));
+                            }
+                            ?>
+                            <h3 class="rb-next__day"><?php echo esc_html($day_label); ?></h3>
+                            <div class="rb-next__list">
+                                <?php foreach ($day_bookings as $booking) : ?>
+                                    <?php
+                                    $service_names = array();
+                                    $decoded = json_decode((string) ($booking['services'] ?? ''), true);
+                                    if (is_array($decoded)) {
+                                        foreach ($decoded as $item) {
+                                            if (is_string($item) && $item !== '') {
+                                                $service_names[] = $item;
+                                            }
+                                        }
+                                    }
+                                    $meta_parts = array();
+                                    if (!empty($booking['employee_name'])) {
+                                        $meta_parts[] = (string) $booking['employee_name'];
+                                    }
+                                    if (!empty($service_names)) {
+                                        $meta_parts[] = implode(', ', $service_names);
+                                    }
+                                    $start = substr((string) $booking['start_time'], 0, 5);
+                                    ?>
+                                    <a class="rb-next__card" href="<?php echo esc_url(admin_url('admin.php?page=rewan-booking-bookings&edit_booking=' . (int) $booking['id'])); ?>">
+                                        <span class="rb-next__clock"><?php echo esc_html($start); ?></span>
+                                        <span class="rb-next__main">
+                                            <strong><?php echo esc_html($booking['customer_name']); ?></strong>
+                                            <?php if (!empty($meta_parts)) : ?>
+                                                <span><?php echo esc_html(implode(' · ', $meta_parts)); ?></span>
+                                            <?php endif; ?>
+                                        </span>
+                                        <span class="rb-next__go" aria-hidden="true">›</span>
+                                    </a>
                                 <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    <?php else : ?>
-                        <p class="rb-dash__empty"><?php esc_html_e('Keine kommenden Termine.', 'rewan-booking'); ?></p>
-                    <?php endif; ?>
-                </section>
-
-                <aside class="rb-dash__side">
-                    <section class="rb-dash__panel">
-                        <h2><?php esc_html_e('Team heute', 'rewan-booking'); ?></h2>
-                        <?php if (!empty($all_employees)) : ?>
-                            <?php foreach ($all_employees as $emp) : ?>
-                                <?php
-                                $eid = (int) $emp['id'];
-                                $cnt = isset($counts_by_emp[ $eid ]) ? $counts_by_emp[ $eid ] : 0;
-                                $cap = $this->dashboard_employee_slot_capacity($eid, $today);
-                                $pct = ($cap > 0) ? min(100, (int) round(($cnt / $cap) * 100)) : 0;
-                                ?>
-                                <div class="rb-dash__load">
-                                    <div class="rb-dash__load-row">
-                                        <span><?php echo esc_html($emp['name']); ?></span>
-                                        <span><?php echo $cap > 0 ? esc_html((string) $cnt . ' / ' . (string) $cap) : esc_html__('frei', 'rewan-booking'); ?></span>
-                                    </div>
-                                    <div class="rb-dash__bar"><span style="width: <?php echo (int) $pct; ?>%;"></span></div>
-                                </div>
-                            <?php endforeach; ?>
-                        <?php else : ?>
-                            <p class="rb-dash__empty"><?php esc_html_e('Keine aktiven Mitarbeiter.', 'rewan-booking'); ?></p>
-                        <?php endif; ?>
-                    </section>
-
-                    <section class="rb-dash__panel">
-                        <h2><?php esc_html_e('Einstellungen', 'rewan-booking'); ?></h2>
-                        <p class="rb-dash__hint"><?php esc_html_e('Shortcode', 'rewan-booking'); ?> <code>[rewan_booking_form]</code></p>
-                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                            <input type="hidden" name="action" value="rewan_booking_save_settings" />
-                            <?php wp_nonce_field('rewan_booking_save_settings_nonce', 'rewan_booking_save_settings_nonce'); ?>
-                            <p>
-                                <label for="rewan-dash-notify-email"><?php esc_html_e('E-Mail für neue Buchungen', 'rewan-booking'); ?></label>
-                                <input type="email" id="rewan-dash-notify-email" name="notification_email" value="<?php echo esc_attr($notification_email); ?>" required />
-                            </p>
-                            <p>
-                                <label for="rewan-dash-github-token"><?php esc_html_e('GitHub-Token für automatische Updates', 'rewan-booking'); ?></label>
-                                <input type="password" id="rewan-dash-github-token" name="github_token" value="" autocomplete="new-password" placeholder="<?php echo esc_attr(get_option('rewan_booking_github_token', '') ? __('Token ist gespeichert', 'rewan-booking') : ''); ?>" />
-                            </p>
-                            <p class="rb-dash__hint"><?php esc_html_e('Leer lassen, um den Token zu behalten. Nach einem Push auf main mit höherer Versionsnummer übernimmt WordPress das Update. Buchungen bleiben dabei erhalten.', 'rewan-booking'); ?></p>
-                            <button type="submit" class="button button-primary"><?php esc_html_e('Speichern', 'rewan-booking'); ?></button>
-                        </form>
-                    </section>
-                </aside>
-            </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else : ?>
+                    <p class="rb-dash__empty"><?php esc_html_e('Keine kommenden Termine.', 'rewan-booking'); ?></p>
+                <?php endif; ?>
+            </section>
         </div>
         <?php
     }
@@ -1244,24 +1209,27 @@ class Rewan_Booking_Admin {
             <p class="rb-srv-intro"><?php esc_html_e('Lege neue Services an und verwalte bestehende Leistungen zentral. Die Tabelle ist kompakt auf Desktop und bleibt auf Mobile gut bedienbar.', 'rewan-booking'); ?></p>
 
             <div class="rb-srv-panel">
-                <h2><?php esc_html_e('Neue Dienstleistung hinzufügen', 'rewan-booking'); ?></h2>
-                <p><?php esc_html_e('Nur die wichtigsten Felder ausfüllen und speichern.', 'rewan-booking'); ?></p>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <h2><?php esc_html_e('Neue Dienstleistung', 'rewan-booking'); ?></h2>
+                <p><?php esc_html_e('Name, Preis und Dauer reichen. Beschreibung und Bild kannst du leer lassen.', 'rewan-booking'); ?></p>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="rb-add-form">
                     <input type="hidden" name="action" value="rewan_booking_save_service">
                     <input type="hidden" name="service_id" value="0">
                     <?php wp_nonce_field('rewan_booking_save_service_nonce', 'rewan_booking_save_service_nonce'); ?>
 
-                    <div class="rb-srv-form-grid">
-                        <div><label><?php esc_html_e('Name', 'rewan-booking'); ?></label><input type="text" name="service_name" value="<?php echo esc_attr($new_service['name']); ?>" required></div>
-                        <div><label><?php esc_html_e('Preis (CHF)', 'rewan-booking'); ?></label><input type="number" name="service_price" min="0" step="0.01" value="<?php echo esc_attr($new_service['price']); ?>" required></div>
-                        <div><label><?php esc_html_e('Dauer (Minuten)', 'rewan-booking'); ?></label><input type="number" name="service_duration" min="1" step="1" value="<?php echo esc_attr($new_service['duration']); ?>" required></div>
-                        <div class="full"><label><?php esc_html_e('Beschreibung', 'rewan-booking'); ?></label><textarea name="service_description" rows="3"><?php echo esc_textarea($new_service['description']); ?></textarea></div>
-                        <div class="full"><label><?php esc_html_e('Bild-URL (optional)', 'rewan-booking'); ?></label><input type="url" name="service_image_url" value="<?php echo esc_attr($new_service['image_url']); ?>"></div>
+                    <div class="rb-add-fields">
+                        <label><span><?php esc_html_e('Name', 'rewan-booking'); ?></span><input type="text" name="service_name" value="<?php echo esc_attr($new_service['name']); ?>" required></label>
+                        <label><span><?php esc_html_e('Preis (CHF)', 'rewan-booking'); ?></span><input type="number" name="service_price" min="0" step="0.01" inputmode="decimal" placeholder="35.00" value="<?php echo esc_attr($new_service['price']); ?>" required></label>
+                        <label><span><?php esc_html_e('Dauer (Minuten)', 'rewan-booking'); ?></span><input type="number" name="service_duration" min="1" step="1" inputmode="numeric" placeholder="30" value="<?php echo esc_attr($new_service['duration']); ?>" required></label>
+                        <label class="is-full"><span><?php esc_html_e('Beschreibung', 'rewan-booking'); ?></span><textarea name="service_description" rows="3" placeholder="<?php esc_attr_e('Kurz, was dazugehört', 'rewan-booking'); ?>"><?php echo esc_textarea($new_service['description']); ?></textarea></label>
+                        <label class="is-full"><span><?php esc_html_e('Bild-URL', 'rewan-booking'); ?></span><input type="url" name="service_image_url" placeholder="https://" value="<?php echo esc_attr($new_service['image_url']); ?>"></label>
                     </div>
-                    <p class="rb-srv-toggle">
-                        <label><input type="checkbox" name="service_is_active" value="1" checked> <?php esc_html_e('Aktiv anzeigen', 'rewan-booking'); ?></label>
-                    </p>
-                    <?php submit_button(__('Dienstleistung speichern', 'rewan-booking'), 'primary', 'submit', false); ?>
+                    <label class="rb-emp-switch">
+                        <input type="checkbox" name="service_is_active" value="1" checked>
+                        <span><?php esc_html_e('Aktiv', 'rewan-booking'); ?><small><?php esc_html_e('Kunden können das buchen', 'rewan-booking'); ?></small></span>
+                    </label>
+                    <div class="rb-add-actions">
+                        <?php submit_button(__('Dienstleistung speichern', 'rewan-booking'), 'primary', 'submit', false); ?>
+                    </div>
                 </form>
             </div>
 
@@ -1375,251 +1343,190 @@ class Rewan_Booking_Admin {
             <h1 class="rb-emp-page__h1"><?php esc_html_e('Mitarbeiter', 'rewan-booking'); ?></h1>
 
             <?php $this->render_admin_notice($message); ?>
-            <style>
-                .rb-emp-page { max-width:1280px; }
-                .rb-emp-page__h1 { margin-bottom:10px; }
-                .rb-emp-intro { margin:0 0 14px; color:#64748b; font-size:14px; line-height:1.55; max-width:70ch; }
-                .rb-emp-panel {
-                    background:#fff; border:1px solid #e2e8f0; border-radius:14px; padding:16px; margin:14px 0;
-                    box-shadow:0 1px 4px rgba(15,23,42,.05);
-                }
-                .rb-emp-panel h2 { margin:0 0 6px; font-size:18px; }
-                .rb-emp-panel p { margin:0 0 12px; color:#64748b; }
-                .rb-emp-form-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
-                .rb-emp-form-grid > div { min-width:0; }
-                .rb-emp-form-grid input { width:100%; min-height:40px; }
-                .rb-emp-form-grid label { display:block; font-weight:600; margin-bottom:6px; }
-                .rb-emp-toggle { margin:10px 0 14px; }
-                .rb-emp-table-wrap {
-                    margin-top:12px; overflow:auto; border:1px solid #e2e8f0; border-radius:12px; background:#fff;
-                }
-                .rb-emp-table { width:100%; border-collapse:separate; border-spacing:0; min-width:900px; }
-                .rb-emp-table th {
-                    background:#f8fafc; text-transform:uppercase; letter-spacing:.05em; font-size:12px;
-                    font-weight:700; color:#475569; text-align:left; padding:12px 14px; border-bottom:1px solid #e2e8f0;
-                }
-                .rb-emp-table td {
-                    padding:12px 14px; border-bottom:1px solid #eef2f7; vertical-align:top; font-size:14px;
-                }
-                .rb-emp-table tbody tr:last-child td { border-bottom:none; }
-                .rb-emp-table tbody tr:hover td { background:#f8fbff; }
-                .rb-emp-name { font-weight:700; color:#0f172a; }
-                .rb-emp-muted { color:#64748b; font-size:13px; }
-                .rb-emp-pill { display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:700; }
-                .rb-emp-pill--active { background:#dcfce7; color:#166534; border:1px solid #86efac; }
-                .rb-emp-pill--inactive { background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; }
-                .rb-emp-edit-row details { margin:0; }
-                .rb-emp-edit-row summary { cursor:pointer; color:#2271b1; font-weight:600; }
-                .rb-emp-edit-form { margin-top:10px; padding:12px; border:1px solid #e2e8f0; border-radius:10px; background:#fcfdff; }
-                .rb-emp-edit-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
-                .rb-emp-edit-grid .full { grid-column:1 / -1; }
-                .rb-emp-edit-grid input { width:100%; }
-                .rb-emp-actions { white-space:nowrap; display:flex; gap:8px; flex-wrap:wrap; }
-                .rb-emp-schedule-wrap { margin-top:12px; border:1px solid #e2e8f0; border-radius:10px; background:#fff; overflow:auto; }
-                .rb-emp-schedule-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:10px; border-bottom:1px solid #eef2f7; background:#f8fafc; }
-                .rb-emp-schedule-toolbar .button { margin:0; }
-                .rb-emp-schedule-toolbar .rb-emp-schedule-note { color:#64748b; font-size:12px; }
-                .rb-emp-schedule-table { width:100%; border-collapse:collapse; min-width:760px; }
-                .rb-emp-schedule-table th, .rb-emp-schedule-table td {
-                    border-bottom:1px solid #eef2f7; padding:8px; text-align:left; vertical-align:middle;
-                }
-                .rb-emp-schedule-table thead th { background:#f8fafc; font-size:12px; color:#475569; text-transform:uppercase; }
-                .rb-emp-schedule-table tbody tr:last-child td { border-bottom:none; }
-                .rb-emp-schedule-table input[type="time"] { min-height:36px; width:120px; }
-                .rb-emp-schedule-table .rb-emp-day { font-weight:600; white-space:nowrap; }
-                .rb-emp-empty { padding:22px; text-align:center; color:#64748b; }
-                @media (max-width:960px) {
-                    .rb-emp-form-grid { grid-template-columns:1fr 1fr; }
-                }
-                @media (max-width:680px) {
-                    .rb-emp-form-grid { grid-template-columns:1fr; }
-                    .rb-emp-panel { padding:12px; }
-                    .rb-emp-edit-grid { grid-template-columns:1fr; }
-                    .rb-emp-actions .button { width:100%; text-align:center; }
-                }
-            </style>
-
-            <p class="rb-emp-intro"><?php esc_html_e('Verwalte Mitarbeiter zentral und bearbeite Stammdaten direkt in der Tabelle. Mobile und Desktop bleiben konsistent.', 'rewan-booking'); ?></p>
 
             <div class="rb-emp-panel">
-                <h2><?php esc_html_e('Neuen Mitarbeiter schnell hinzufügen', 'rewan-booking'); ?></h2>
-                <p><?php esc_html_e('Neue Mitarbeiter arbeiten in den Öffnungszeiten. Abweichende Zeiten stellst du beim Bearbeiten ein.', 'rewan-booking'); ?></p>
-                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <h2><?php esc_html_e('Neuen Mitarbeiter hinzufügen', 'rewan-booking'); ?></h2>
+                <p><?php esc_html_e('Er arbeitet zuerst wie der Laden. Andere Zeiten stellst du beim Bearbeiten ein.', 'rewan-booking'); ?></p>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="rb-add-form">
                     <input type="hidden" name="action" value="rewan_booking_save_employee">
                     <input type="hidden" name="employee_id" value="0">
                     <?php wp_nonce_field('rewan_booking_save_employee_nonce', 'rewan_booking_save_employee_nonce'); ?>
 
-                    <div class="rb-emp-form-grid">
-                        <div><label>Name<br><input type="text" name="employee_name" required></label></div>
-                        <div><label>E-Mail<br><input type="email" name="employee_email" required></label></div>
-                        <div><label>Bild-URL (optional)<br><input type="url" name="employee_image_url"></label></div>
+                    <div class="rb-add-fields is-pair">
+                        <label><span><?php esc_html_e('Name', 'rewan-booking'); ?></span><input type="text" name="employee_name" required></label>
+                        <label><span><?php esc_html_e('E-Mail', 'rewan-booking'); ?></span><input type="email" name="employee_email" required></label>
+                        <label class="is-full"><span><?php esc_html_e('Bild-URL', 'rewan-booking'); ?></span><input type="url" name="employee_image_url" placeholder="https://"></label>
                     </div>
-                    <p class="rb-emp-toggle"><label><input type="checkbox" name="employee_is_active" value="1" checked> <?php esc_html_e('Aktiv', 'rewan-booking'); ?></label></p>
+                    <label class="rb-emp-switch">
+                        <input type="checkbox" name="employee_is_active" value="1" checked>
+                        <span><?php esc_html_e('Aktiv', 'rewan-booking'); ?><small><?php esc_html_e('Sichtbar für Kunden. Zeiten sind zuerst wie der Laden.', 'rewan-booking'); ?></small></span>
+                    </label>
                     <input type="hidden" name="follows_opening" value="1">
-                    <?php submit_button(__('Mitarbeiter speichern', 'rewan-booking'), 'primary', 'submit', false); ?>
+                    <div class="rb-add-actions">
+                        <?php submit_button(__('Mitarbeiter speichern', 'rewan-booking'), 'primary', 'submit', false); ?>
+                    </div>
                 </form>
             </div>
 
             <div class="rb-emp-panel">
-            <h2><?php esc_html_e('Mitarbeiter verwalten', 'rewan-booking'); ?></h2>
-            <p><?php esc_html_e('Per Klick auf „Bearbeiten“ öffnet sich das Formular direkt in der jeweiligen Zeile.', 'rewan-booking'); ?></p>
-            <div class="rb-emp-table-wrap">
+            <h2><?php esc_html_e('Alle Mitarbeiter', 'rewan-booking'); ?></h2>
+            <div class="rb-emp-list">
                 <?php if (!empty($employees)) : ?>
-                    <table class="rb-emp-table">
-                        <thead>
-                            <tr>
-                                <th><?php esc_html_e('Name', 'rewan-booking'); ?></th>
-                                <th><?php esc_html_e('E-Mail', 'rewan-booking'); ?></th>
-                                <th><?php esc_html_e('Status', 'rewan-booking'); ?></th>
-                                <th><?php esc_html_e('Aktion', 'rewan-booking'); ?></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        <?php foreach ($employees as $row) : ?>
-                            <?php $employee_id = (int) $row['id']; ?>
-                            <tr>
-                                <td>
+                    <?php foreach ($employees as $row) : ?>
+                        <?php $employee_id = (int) $row['id']; ?>
+                        <?php $follows_opening = !empty($row['follows_opening']); ?>
+                        <article class="rb-emp-card">
+                            <div class="rb-emp-card-head">
+                                <div>
                                     <div class="rb-emp-name"><?php echo esc_html($row['name']); ?></div>
-                                    <?php if (!empty($row['image_url'])) : ?>
-                                        <div class="rb-emp-muted"><?php esc_html_e('Bild hinterlegt', 'rewan-booking'); ?></div>
-                                    <?php endif; ?>
-                                </td>
-                                <td><?php echo esc_html($row['email']); ?></td>
-                                <td>
-                                    <?php if ((int) $row['is_active'] === 1) : ?>
-                                        <span class="rb-emp-pill rb-emp-pill--active"><?php esc_html_e('Aktiv', 'rewan-booking'); ?></span>
-                                    <?php else : ?>
-                                        <span class="rb-emp-pill rb-emp-pill--inactive"><?php esc_html_e('Inaktiv', 'rewan-booking'); ?></span>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="rb-emp-edit-row">
-                                    <details>
-                                        <summary><?php esc_html_e('Bearbeiten', 'rewan-booking'); ?></summary>
-                                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="rb-emp-edit-form">
-                                            <input type="hidden" name="action" value="rewan_booking_save_employee">
-                                            <input type="hidden" name="employee_id" value="<?php echo esc_attr($employee_id); ?>">
-                                            <?php wp_nonce_field('rewan_booking_save_employee_nonce', 'rewan_booking_save_employee_nonce'); ?>
+                                    <div class="rb-emp-muted"><?php echo esc_html($row['email']); ?></div>
+                                </div>
+                                <?php if ((int) $row['is_active'] === 1) : ?>
+                                    <span class="rb-emp-pill rb-emp-pill--active"><?php esc_html_e('Aktiv', 'rewan-booking'); ?></span>
+                                <?php else : ?>
+                                    <span class="rb-emp-pill rb-emp-pill--inactive"><?php esc_html_e('Inaktiv', 'rewan-booking'); ?></span>
+                                <?php endif; ?>
+                            </div>
+                            <details class="rb-emp-details">
+                                <summary><?php esc_html_e('Bearbeiten', 'rewan-booking'); ?></summary>
+                                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="rb-emp-edit-form">
+                                    <input type="hidden" name="action" value="rewan_booking_save_employee">
+                                    <input type="hidden" name="employee_id" value="<?php echo esc_attr($employee_id); ?>">
+                                    <?php wp_nonce_field('rewan_booking_save_employee_nonce', 'rewan_booking_save_employee_nonce'); ?>
 
-                                            <div class="rb-emp-edit-grid">
-                                                <div><label><?php esc_html_e('Name', 'rewan-booking'); ?><br><input type="text" name="employee_name" value="<?php echo esc_attr($row['name']); ?>" required></label></div>
-                                                <div><label><?php esc_html_e('E-Mail', 'rewan-booking'); ?><br><input type="email" name="employee_email" value="<?php echo esc_attr($row['email']); ?>" required></label></div>
-                                                <div class="full"><label><?php esc_html_e('Bild-URL', 'rewan-booking'); ?><br><input type="url" name="employee_image_url" value="<?php echo esc_attr($row['image_url']); ?>"></label></div>
-                                                <div class="full"><label><input type="checkbox" name="employee_is_active" value="1" <?php checked((int) $row['is_active'], 1); ?>> <?php esc_html_e('Aktiv', 'rewan-booking'); ?></label></div>
-                                            </div>
+                                    <h3><?php esc_html_e('Person', 'rewan-booking'); ?></h3>
+                                    <div class="rb-emp-fields">
+                                        <label><span><?php esc_html_e('Name', 'rewan-booking'); ?></span><input type="text" name="employee_name" value="<?php echo esc_attr($row['name']); ?>" required></label>
+                                        <label><span><?php esc_html_e('E-Mail', 'rewan-booking'); ?></span><input type="email" name="employee_email" value="<?php echo esc_attr($row['email']); ?>" required></label>
+                                        <label class="is-full"><span><?php esc_html_e('Bild-URL', 'rewan-booking'); ?></span><input type="url" name="employee_image_url" value="<?php echo esc_attr($row['image_url']); ?>" placeholder="https://"></label>
+                                    </div>
+                                    <label class="rb-emp-switch">
+                                        <input type="checkbox" name="employee_is_active" value="1" <?php checked((int) $row['is_active'], 1); ?>>
+                                        <span><?php esc_html_e('Aktiv', 'rewan-booking'); ?><small><?php esc_html_e('Sichtbar für Kunden', 'rewan-booking'); ?></small></span>
+                                    </label>
 
-                                            <?php $follows_opening = !empty($row['follows_opening']); ?>
-                                            <label class="rb-emp-follow">
-                                                <input type="checkbox" name="follows_opening" value="1" class="rb-emp-follows" <?php checked($follows_opening); ?>>
-                                                <?php esc_html_e('Arbeitet in den Öffnungszeiten', 'rewan-booking'); ?>
-                                            </label>
-                                            <p class="rb-emp-schedule-note"><?php esc_html_e('Mit Haken gelten die Öffnungszeiten. Ohne Haken gelten die eigenen Von/Bis-Felder, aber nur innerhalb der Öffnung.', 'rewan-booking'); ?></p>
-                                            <div class="rb-emp-schedule-wrap<?php echo $follows_opening ? ' is-muted' : ''; ?>">
-                                                <div class="rb-emp-schedule-toolbar">
-                                                    <button type="button" class="button rb-emp-preset-monsa"><?php esc_html_e('Mo-Sa aktiv (09:00-18:00)', 'rewan-booking'); ?></button>
-                                                    <button type="button" class="button rb-emp-preset-reset"><?php esc_html_e('Zurücksetzen', 'rewan-booking'); ?></button>
-                                                    <span class="rb-emp-schedule-note"><?php esc_html_e('Schnellvorlage für Arbeitszeiten und Pausen.', 'rewan-booking'); ?></span>
+                                    <h3><?php esc_html_e('Arbeitszeiten', 'rewan-booking'); ?></h3>
+                                    <label class="rb-emp-switch">
+                                        <input type="checkbox" name="follows_opening" value="1" class="rb-emp-follows" <?php checked($follows_opening); ?>>
+                                        <span><?php esc_html_e('Wie der Laden', 'rewan-booking'); ?><small><?php esc_html_e('Haken an: es gelten die Öffnungszeiten. Haken weg: eigene Tage unten.', 'rewan-booking'); ?></small></span>
+                                    </label>
+                                    <div class="rb-emp-schedule-wrap<?php echo $follows_opening ? ' is-muted' : ''; ?>">
+                                        <div class="rb-emp-schedule-toolbar">
+                                            <button type="button" class="button rb-emp-preset-monsa"><?php esc_html_e('Mo–Sa 09:00–18:00, Sonntag frei', 'rewan-booking'); ?></button>
+                                            <span class="rb-emp-schedule-note"><?php esc_html_e('Eigene Zeiten gelten nur, solange der Laden offen ist.', 'rewan-booking'); ?></span>
+                                        </div>
+                                        <div class="rb-emp-days">
+                                            <?php for ($weekday = 1; $weekday <= 7; $weekday++) : ?>
+                                                <?php
+                                                $h = isset($hours_by_employee[$employee_id][$weekday]) ? $hours_by_employee[$employee_id][$weekday] : array();
+                                                $b = isset($breaks_by_employee[$employee_id][$weekday]) ? $breaks_by_employee[$employee_id][$weekday] : array();
+                                                $is_working = isset($h['is_working']) ? (int) $h['is_working'] : (($weekday <= 6) ? 1 : 0);
+                                                $start_time = isset($h['start_time']) ? substr((string) $h['start_time'], 0, 5) : '09:00';
+                                                $end_time = isset($h['end_time']) ? substr((string) $h['end_time'], 0, 5) : '18:00';
+                                                $is_enabled = isset($b['is_enabled']) ? (int) $b['is_enabled'] : 0;
+                                                $break_start = isset($b['break_start']) ? substr((string) $b['break_start'], 0, 5) : '12:00';
+                                                $break_end = isset($b['break_end']) ? substr((string) $b['break_end'], 0, 5) : '13:00';
+                                                ?>
+                                                <div class="rb-emp-day<?php echo $is_working ? '' : ' is-off'; ?>">
+                                                    <div class="rb-emp-day-name"><?php echo esc_html($weekday_labels[$weekday]); ?></div>
+                                                    <label class="rb-emp-switch rb-emp-switch--inline rb-emp-work">
+                                                        <input type="checkbox" class="rb-emp-working" name="hours[<?php echo esc_attr((string) $weekday); ?>][is_working]" value="1" <?php checked($is_working, 1); ?>>
+                                                        <span><?php esc_html_e('Arbeitet', 'rewan-booking'); ?></span>
+                                                    </label>
+                                                    <label class="rb-emp-time">
+                                                        <span><?php esc_html_e('Von', 'rewan-booking'); ?></span>
+                                                        <?php $this->render_time_24('hours[' . $weekday . '][start_time]', $start_time); ?>
+                                                    </label>
+                                                    <label class="rb-emp-time">
+                                                        <span><?php esc_html_e('Bis', 'rewan-booking'); ?></span>
+                                                        <?php $this->render_time_24('hours[' . $weekday . '][end_time]', $end_time); ?>
+                                                    </label>
+                                                    <label class="rb-emp-switch rb-emp-switch--inline rb-emp-pause">
+                                                        <input type="checkbox" class="rb-emp-break" name="breaks[<?php echo esc_attr((string) $weekday); ?>][is_enabled]" value="1" <?php checked($is_enabled, 1); ?>>
+                                                        <span><?php esc_html_e('Pause', 'rewan-booking'); ?></span>
+                                                    </label>
+                                                    <label class="rb-emp-time rb-emp-break-time<?php echo $is_enabled ? '' : ' is-muted'; ?>">
+                                                        <span><?php esc_html_e('Von', 'rewan-booking'); ?></span>
+                                                        <?php $this->render_time_24('breaks[' . $weekday . '][break_start]', $break_start); ?>
+                                                    </label>
+                                                    <label class="rb-emp-time rb-emp-break-time<?php echo $is_enabled ? '' : ' is-muted'; ?>">
+                                                        <span><?php esc_html_e('Bis', 'rewan-booking'); ?></span>
+                                                        <?php $this->render_time_24('breaks[' . $weekday . '][break_end]', $break_end); ?>
+                                                    </label>
                                                 </div>
-                                                <table class="rb-emp-schedule-table">
-                                                    <thead>
-                                                        <tr>
-                                                            <th><?php esc_html_e('Tag', 'rewan-booking'); ?></th>
-                                                            <th><?php esc_html_e('Arbeitet', 'rewan-booking'); ?></th>
-                                                            <th><?php esc_html_e('Von', 'rewan-booking'); ?></th>
-                                                            <th><?php esc_html_e('Bis', 'rewan-booking'); ?></th>
-                                                            <th><?php esc_html_e('Pause aktiv', 'rewan-booking'); ?></th>
-                                                            <th><?php esc_html_e('Pause von', 'rewan-booking'); ?></th>
-                                                            <th><?php esc_html_e('Pause bis', 'rewan-booking'); ?></th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        <?php for ($weekday = 1; $weekday <= 7; $weekday++) : ?>
-                                                            <?php
-                                                            $h = isset($hours_by_employee[$employee_id][$weekday]) ? $hours_by_employee[$employee_id][$weekday] : array();
-                                                            $b = isset($breaks_by_employee[$employee_id][$weekday]) ? $breaks_by_employee[$employee_id][$weekday] : array();
-                                                            $is_working = isset($h['is_working']) ? (int) $h['is_working'] : (($weekday <= 6) ? 1 : 0);
-                                                            $start_time = isset($h['start_time']) ? substr((string) $h['start_time'], 0, 5) : '09:00';
-                                                            $end_time = isset($h['end_time']) ? substr((string) $h['end_time'], 0, 5) : '18:00';
-                                                            $is_enabled = isset($b['is_enabled']) ? (int) $b['is_enabled'] : 0;
-                                                            $break_start = isset($b['break_start']) ? substr((string) $b['break_start'], 0, 5) : '12:00';
-                                                            $break_end = isset($b['break_end']) ? substr((string) $b['break_end'], 0, 5) : '13:00';
-                                                            ?>
-                                                            <tr>
-                                                                <td class="rb-emp-day"><?php echo esc_html($weekday_labels[$weekday]); ?></td>
-                                                                <td><input type="checkbox" name="hours[<?php echo esc_attr((string) $weekday); ?>][is_working]" value="1" <?php checked($is_working, 1); ?>></td>
-                                                                <td><input type="time" name="hours[<?php echo esc_attr((string) $weekday); ?>][start_time]" value="<?php echo esc_attr($start_time); ?>"></td>
-                                                                <td><input type="time" name="hours[<?php echo esc_attr((string) $weekday); ?>][end_time]" value="<?php echo esc_attr($end_time); ?>"></td>
-                                                                <td><input type="checkbox" name="breaks[<?php echo esc_attr((string) $weekday); ?>][is_enabled]" value="1" <?php checked($is_enabled, 1); ?>></td>
-                                                                <td><input type="time" name="breaks[<?php echo esc_attr((string) $weekday); ?>][break_start]" value="<?php echo esc_attr($break_start); ?>"></td>
-                                                                <td><input type="time" name="breaks[<?php echo esc_attr((string) $weekday); ?>][break_end]" value="<?php echo esc_attr($break_end); ?>"></td>
-                                                            </tr>
-                                                        <?php endfor; ?>
-                                                    </tbody>
-                                                </table>
-                                            </div>
+                                            <?php endfor; ?>
+                                        </div>
+                                    </div>
 
-                                            <p class="rb-emp-actions">
-                                                <?php submit_button(__('Änderungen speichern', 'rewan-booking'), 'primary', 'submit', false); ?>
-                                                <a class="button" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=rewan_booking_delete_employee&employee_id=' . $employee_id), 'rewan_booking_delete_employee_' . $employee_id)); ?>" onclick="return confirm('<?php echo esc_js(__('Mitarbeiter wirklich löschen? Das geht nur, wenn noch keine Buchungen zugewiesen sind.', 'rewan-booking')); ?>');"><?php esc_html_e('Löschen', 'rewan-booking'); ?></a>
-                                            </p>
-                                        </form>
-                                        <script>
-                                        (function () {
-                                            var form = document.currentScript && document.currentScript.closest('form');
-                                            if (!form) return;
+                                    <div class="rb-emp-actions">
+                                        <?php submit_button(__('Änderungen speichern', 'rewan-booking'), 'primary', 'submit', false); ?>
+                                        <a class="rb-emp-delete" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=rewan_booking_delete_employee&employee_id=' . $employee_id), 'rewan_booking_delete_employee_' . $employee_id)); ?>" onclick="return confirm('<?php echo esc_js(__('Mitarbeiter wirklich löschen? Das geht nur, wenn noch keine Buchungen zugewiesen sind.', 'rewan-booking')); ?>');"><?php esc_html_e('Löschen', 'rewan-booking'); ?></a>
+                                    </div>
+                                </form>
+                            </details>
+                        </article>
+                    <?php endforeach; ?>
+                    <script>
+                    (function () {
+                        function setTime(form, inputName, value) {
+                            var hidden = form.querySelector('input[name="' + inputName + '"]');
+                            if (!hidden) return;
+                            var parts = String(value).split(':');
+                            var wrap = hidden.closest('.rb-time24');
+                            var hour = wrap ? wrap.querySelector('.rb-time24-h') : null;
+                            var minute = wrap ? wrap.querySelector('.rb-time24-m') : null;
+                            if (hour) hour.value = parts[0];
+                            if (minute) minute.value = parts[1];
+                            hidden.value = parts[0] + ':' + parts[1];
+                        }
 
-                                            var follow = form.querySelector('.rb-emp-follows');
-                                            var schedule = form.querySelector('.rb-emp-schedule-wrap');
-                                            function syncFollow() {
-                                                if (!follow || !schedule) return;
-                                                schedule.classList.toggle('is-muted', follow.checked);
-                                            }
-                                            if (follow) {
-                                                follow.addEventListener('change', syncFollow);
-                                                syncFollow();
-                                            }
+                        function syncDay(day) {
+                            var work = day.querySelector('.rb-emp-working');
+                            var pause = day.querySelector('.rb-emp-break');
+                            day.classList.toggle('is-off', !(work && work.checked));
+                            day.querySelectorAll('.rb-emp-break-time').forEach(function (el) {
+                                el.classList.toggle('is-muted', !(pause && pause.checked) || !(work && work.checked));
+                            });
+                        }
 
-                                            var btnMonSa = form.querySelector('.rb-emp-preset-monsa');
-                                            var btnReset = form.querySelector('.rb-emp-preset-reset');
-                                            if (!btnMonSa || !btnReset) return;
-
-                                            function setDay(day, workOn, st, et, pauseOn, pst, pet) {
-                                                var w = String(day);
-                                                var work = form.querySelector('input[name="hours[' + w + '][is_working]"]');
-                                                var start = form.querySelector('input[name="hours[' + w + '][start_time]"]');
-                                                var end = form.querySelector('input[name="hours[' + w + '][end_time]"]');
-                                                var pOn = form.querySelector('input[name="breaks[' + w + '][is_enabled]"]');
-                                                var pStart = form.querySelector('input[name="breaks[' + w + '][break_start]"]');
-                                                var pEnd = form.querySelector('input[name="breaks[' + w + '][break_end]"]');
-
-                                                if (work) work.checked = !!workOn;
-                                                if (start) start.value = st;
-                                                if (end) end.value = et;
-                                                if (pOn) pOn.checked = !!pauseOn;
-                                                if (pStart) pStart.value = pst;
-                                                if (pEnd) pEnd.value = pet;
-                                            }
-
-                                            btnMonSa.addEventListener('click', function () {
-                                                for (var day = 1; day <= 6; day++) {
-                                                    setDay(day, true, '09:00', '18:00', false, '12:00', '13:00');
-                                                }
-                                                setDay(7, false, '09:00', '18:00', false, '12:00', '13:00');
-                                            });
-
-                                            btnReset.addEventListener('click', function () {
-                                                for (var day = 1; day <= 6; day++) {
-                                                    setDay(day, true, '09:00', '18:00', false, '12:00', '13:00');
-                                                }
-                                                setDay(7, false, '09:00', '18:00', false, '12:00', '13:00');
-                                            });
-                                        })();
-                                        </script>
-                                    </details>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                        </tbody>
-                    </table>
+                        document.querySelectorAll('.rb-emp-edit-form').forEach(function (form) {
+                            var follow = form.querySelector('.rb-emp-follows');
+                            var schedule = form.querySelector('.rb-emp-schedule-wrap');
+                            function syncFollow() {
+                                if (!follow || !schedule) return;
+                                schedule.classList.toggle('is-muted', follow.checked);
+                            }
+                            if (follow) {
+                                follow.addEventListener('change', syncFollow);
+                                syncFollow();
+                            }
+                            form.querySelectorAll('.rb-emp-day').forEach(function (day) {
+                                syncDay(day);
+                                day.addEventListener('change', function () { syncDay(day); });
+                            });
+                            var preset = form.querySelector('.rb-emp-preset-monsa');
+                            if (!preset) return;
+                            function setDay(day, workOn, st, et, pauseOn, pst, pet) {
+                                var w = String(day);
+                                var work = form.querySelector('input[name="hours[' + w + '][is_working]"]');
+                                var pOn = form.querySelector('input[name="breaks[' + w + '][is_enabled]"]');
+                                if (work) work.checked = !!workOn;
+                                if (pOn) pOn.checked = !!pauseOn;
+                                setTime(form, 'hours[' + w + '][start_time]', st);
+                                setTime(form, 'hours[' + w + '][end_time]', et);
+                                setTime(form, 'breaks[' + w + '][break_start]', pst);
+                                setTime(form, 'breaks[' + w + '][break_end]', pet);
+                            }
+                            preset.addEventListener('click', function () {
+                                for (var day = 1; day <= 6; day++) {
+                                    setDay(day, true, '09:00', '18:00', false, '12:00', '13:00');
+                                }
+                                setDay(7, false, '09:00', '18:00', false, '12:00', '13:00');
+                                form.querySelectorAll('.rb-emp-day').forEach(syncDay);
+                            });
+                        });
+                    })();
+                    </script>
                 <?php else : ?>
                     <p class="rb-emp-empty"><?php esc_html_e('Keine Mitarbeiter gefunden.', 'rewan-booking'); ?></p>
                 <?php endif; ?>
@@ -1928,6 +1835,122 @@ class Rewan_Booking_Admin {
         wp_send_json_success($this->build_days_off_events_for_employee($employee_id));
     }
 
+    /**
+     * Aufeinanderfolgende Ganztags-Einträge derselben Person als ein Zeitraum.
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @return array<int,array<string,mixed>>
+     */
+    private function group_absence_rows($rows) {
+        $rows = array_values((array) $rows);
+        usort($rows, function ($a, $b) {
+            $by_employee = (int) $a['employee_id'] <=> (int) $b['employee_id'];
+            if ($by_employee !== 0) {
+                return $by_employee;
+            }
+            $by_date = strcmp((string) $a['start_date'], (string) $b['start_date']);
+            if ($by_date !== 0) {
+                return $by_date;
+            }
+            return (int) $a['id'] <=> (int) $b['id'];
+        });
+
+        $groups = array();
+        foreach ($rows as $row) {
+            $all_day = isset($row['is_all_day']) && (int) $row['is_all_day'] === 1;
+            $title = trim((string) ($row['title'] ?? ''));
+            $index = count($groups) - 1;
+            $last = $index >= 0 ? $groups[$index] : null;
+            $follows = false;
+            if ($last && $all_day && (int) $last['is_all_day'] === 1 && (int) $last['employee_id'] === (int) $row['employee_id'] && trim((string) $last['title']) === $title && (string) $last['absence_type'] === (string) $row['absence_type']) {
+                $next_day = date('Y-m-d', strtotime($last['end_date'] . ' +1 day'));
+                $follows = (string) $row['start_date'] <= $next_day;
+            }
+            if ($follows) {
+                if ((string) $row['end_date'] > (string) $groups[$index]['end_date']) {
+                    $groups[$index]['end_date'] = (string) $row['end_date'];
+                }
+                $groups[$index]['ids'][] = (int) $row['id'];
+                continue;
+            }
+            $groups[] = array(
+                'ids' => array((int) $row['id']),
+                'employee_id' => (int) $row['employee_id'],
+                'employee_name' => (string) ($row['employee_name'] ?? ''),
+                'title' => $title,
+                'absence_type' => (string) ($row['absence_type'] ?? ''),
+                'start_date' => (string) $row['start_date'],
+                'end_date' => (string) $row['end_date'],
+                'is_all_day' => $all_day ? 1 : 0,
+                'start_time' => isset($row['start_time']) ? substr((string) $row['start_time'], 0, 5) : '',
+                'end_time' => isset($row['end_time']) ? substr((string) $row['end_time'], 0, 5) : '',
+            );
+        }
+
+        usort($groups, function ($a, $b) {
+            return strcmp((string) $b['start_date'], (string) $a['start_date']);
+        });
+
+        return $groups;
+    }
+
+    public function ajax_save_ferien_range() {
+        if (!current_user_can(REWAN_BOOKING_CAP_SALON)) {
+            wp_send_json_error(array('message' => 'Keine Berechtigung.'), 403);
+        }
+        check_ajax_referer('rewan_booking_ferien', 'nonce');
+
+        $employee_id = isset($_POST['employee_id']) ? (int) $_POST['employee_id'] : 0;
+        $start = isset($_POST['start']) ? sanitize_text_field(wp_unslash($_POST['start'])) : '';
+        $end = isset($_POST['end']) ? sanitize_text_field(wp_unslash($_POST['end'])) : '';
+        $title = isset($_POST['title']) ? sanitize_text_field(wp_unslash($_POST['title'])) : '';
+        if ($title === '') {
+            $title = 'Ferien';
+        }
+        if ($employee_id <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $start) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $end)) {
+            wp_send_json_error(array('message' => 'Bitte einen gültigen Zeitraum wählen.'), 400);
+        }
+        if ($end < $start) {
+            $swap = $start;
+            $start = $end;
+            $end = $swap;
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'rewan_booking_employee_absences';
+        $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$table}
+                 WHERE employee_id = %d
+                   AND is_all_day = 1
+                   AND absence_type IN ('holiday','vacation')
+                   AND start_date <= %s
+                   AND end_date >= %s",
+                $employee_id,
+                $end,
+                $start
+            )
+        );
+        $ok = $wpdb->insert(
+            $table,
+            array(
+                'employee_id' => $employee_id,
+                'title' => $title,
+                'absence_type' => 'holiday',
+                'start_date' => $start,
+                'end_date' => $end,
+                'is_all_day' => 1,
+                'start_time' => '00:00:00',
+                'end_time' => '23:59:59',
+            ),
+            array('%d', '%s', '%s', '%s', '%s', '%d', '%s', '%s')
+        );
+        if (!$ok) {
+            wp_send_json_error(array('message' => 'Konnte nicht gespeichert werden.'), 500);
+        }
+        wp_send_json_success(array('id' => (int) $wpdb->insert_id));
+    }
+
     public function render_absences_page() {
         if (!current_user_can(REWAN_BOOKING_CAP_SALON)) {
             wp_die(esc_html__('Keine Berechtigung.', 'rewan-booking'));
@@ -1950,367 +1973,126 @@ class Rewan_Booking_Admin {
             ? $prefill_employee_id
             : (!empty($employees) ? (int) $employees[0]['id'] : 0);
 
-        $days_off_events_map = array();
-        $days_off_color_palette = $this->get_days_off_legend_color_palette();
-        $days_off_employee_colors = array();
-        $color_i = 0;
-        foreach ((array) $employees as $emp) {
-            $eid = (int) $emp['id'];
-            if ($eid > 0) {
-                $days_off_events_map[$eid] = $this->build_days_off_events_for_employee($eid);
-                $days_off_employee_colors[$eid] = $days_off_color_palette[$color_i % count($days_off_color_palette)];
-                $color_i++;
+        $groups = $this->group_absence_rows($absences);
+        $ranges_by_employee = array();
+        foreach ($groups as $group) {
+            $eid = (int) $group['employee_id'];
+            if (!isset($ranges_by_employee[$eid])) {
+                $ranges_by_employee[$eid] = array();
             }
+            $ranges_by_employee[$eid][] = array(
+                'ids' => $group['ids'],
+                'start' => $group['start_date'],
+                'end' => $group['end_date'],
+                'title' => $group['title'] !== '' ? $group['title'] : 'Ferien',
+            );
         }
-        if (class_exists('Rewan_Booking_Calendar_Bookly')) {
-            Rewan_Booking_Calendar_Bookly::enqueue_days_off_assets($days_off_events_map, $days_off_employee_colors);
-        }
+
+        wp_enqueue_script(
+            'rewan-booking-ferien',
+            rewan_booking_plugin_url('assets/js/rewan-booking-ferien.js'),
+            array(),
+            REWAN_BOOKING_VERSION,
+            true
+        );
+        wp_localize_script(
+            'rewan-booking-ferien',
+            'RewanFerien',
+            array(
+                'ajaxUrl' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce('rewan_booking_ferien'),
+                'employeeId' => $days_off_employee_id,
+                'ranges' => $ranges_by_employee,
+                'reload' => admin_url('admin.php?page=rewan-booking-absences'),
+            )
+        );
 
         $message = isset($_GET['message']) ? sanitize_text_field(wp_unslash($_GET['message'])) : '';
         ?>
-        <div class="wrap rb-abs-dashboard">
+        <div class="wrap rb-abs-dashboard rb-ferien">
             <h1><?php esc_html_e('Ferien', 'rewan-booking'); ?></h1>
-
             <?php $this->render_admin_notice($message); ?>
-            <?php $this->render_rewan_assets_missing_notice_for_absences(); ?>
 
-            <p class="rb-abs-intro"><?php esc_html_e('Einen Eintrag für alle Mitarbeiter zentral anlegen oder bearbeiten. Nur für Benutzer mit Verwaltungsrecht.', 'rewan-booking'); ?></p>
+            <p class="rb-ferien-lead"><?php esc_html_e('Person antippen. Dann den ersten Tag, danach den letzten. Die Tage dazwischen werden gelb und als ein Eintrag gespeichert.', 'rewan-booking'); ?></p>
 
-            <div id="bookly-tbs" class="bookly-css-root rb-abs-days-off-shell">
-                <div class="form-row align-items-center mb-3">
-                    <h4 class="col m-0"><?php esc_html_e('Freie Tage', 'rewan-booking'); ?></h4>
+            <div class="rb-ferien-panel">
+                <p class="rb-ferien-label"><?php esc_html_e('Mitarbeiter', 'rewan-booking'); ?></p>
+                <div class="rb-ferien-chips" role="listbox">
+                    <?php foreach ($employees as $employee) : ?>
+                        <?php $eid = (int) $employee['id']; ?>
+                        <button type="button" class="rb-ferien-chip<?php echo $days_off_employee_id === $eid ? ' is-selected' : ''; ?>" data-employee-id="<?php echo esc_attr((string) $eid); ?>">
+                            <?php echo esc_html($employee['name']); ?>
+                        </button>
+                    <?php endforeach; ?>
                 </div>
-                <div class="card">
-                    <div class="card-body">
-                        <div class="rb-abs-days-off-filter-wrap">
-                            <div class="rb-abs-days-off-filter">
-                                <label class="rb-abs-days-off-filter-label" for="rb_days_off_employee"><?php esc_html_e('Mitarbeiter wählen', 'rewan-booking'); ?></label>
-                                <p class="rb-abs-days-off-picker-hint"><?php esc_html_e('Der Kalender unten gilt für die ausgewählte Person.', 'rewan-booking'); ?></p>
-                                <select id="rb_days_off_employee" class="form-control rb-days-off-employee-select">
-                                    <?php foreach ($employees as $employee) : ?>
-                                        <?php
-                                        $eid = (int) $employee['id'];
-                                        $emp_hex = isset($days_off_employee_colors[$eid]) ? $days_off_employee_colors[$eid] : '#2271b1';
-                                        ?>
-                                        <option value="<?php echo esc_attr((string) $employee['id']); ?>" <?php selected($days_off_employee_id, $eid); ?> data-rb-color="<?php echo esc_attr($emp_hex); ?>">
-                                            <?php echo esc_html($employee['name']); ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <?php if (!empty($employees)) : ?>
-                                <div class="rb-abs-days-off-legend" role="region" aria-label="<?php echo esc_attr(__('Farblegende Mitarbeiter', 'rewan-booking')); ?>">
-                                    <div class="rb-abs-days-off-legend-head">
-                                        <span class="rb-abs-days-off-legend-title"><?php esc_html_e('Farblegende', 'rewan-booking'); ?></span>
-                                        <span class="rb-abs-days-off-legend-hint"><?php esc_html_e('Klick auf einen Mitarbeiter wählt ihn im Kalender.', 'rewan-booking'); ?></span>
-                                    </div>
-                                    <ul class="rb-abs-days-off-legend-list">
-                                        <?php foreach ($employees as $employee) : ?>
-                                            <?php
-                                            $eid = (int) $employee['id'];
-                                            $emp_hex = isset($days_off_employee_colors[$eid]) ? $days_off_employee_colors[$eid] : '#2271b1';
-                                            ?>
-                                            <li>
-                                                <button type="button" class="rb-abs-days-off-legend-item<?php echo $days_off_employee_id === $eid ? ' is-selected' : ''; ?>" data-employee-id="<?php echo esc_attr((string) $eid); ?>" style="--rb-emp-swatch: <?php echo esc_attr($emp_hex); ?>">
-                                                    <span class="rb-abs-days-off-swatch" aria-hidden="true"></span>
-                                                    <span class="rb-abs-days-off-legend-name"><?php echo esc_html($employee['name']); ?></span>
-                                                </button>
-                                            </li>
-                                        <?php endforeach; ?>
-                                    </ul>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                        <div id="bookly-holidays-container">
-                            <div class="bookly-js-holidays-nav text-center">
-                                <div class="btn-group btn-group-lg" role="group">
-                                    <button class="btn btn-default bookly-js-jCalBtn" data-trigger=".jCal .left" type="button">
-                                        <i class="fas fa-fw fa-angle-left"></i>
-                                    </button>
-                                    <button class="btn btn-default jcal_year" type="button" disabled="disabled"></button>
-                                    <button class="btn btn-default bookly-js-jCalBtn" data-trigger=".jCal .right" type="button">
-                                        <i class="fas fa-fw fa-angle-right"></i>
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="bookly-js-holidays jCal-wrap mt-4"></div>
-                        </div>
-                    </div>
+
+                <div class="rb-ferien-nav">
+                    <button type="button" class="rb-ferien-nav-btn" id="rb-ferien-prev" aria-label="<?php esc_attr_e('Vorheriger Monat', 'rewan-booking'); ?>">‹</button>
+                    <strong id="rb-ferien-month"></strong>
+                    <button type="button" class="rb-ferien-nav-btn" id="rb-ferien-next" aria-label="<?php esc_attr_e('Nächster Monat', 'rewan-booking'); ?>">›</button>
                 </div>
+                <div class="rb-ferien-dow" aria-hidden="true">
+                    <span>Mo</span><span>Di</span><span>Mi</span><span>Do</span><span>Fr</span><span>Sa</span><span>So</span>
+                </div>
+                <div class="rb-ferien-grid" id="rb-ferien-grid"></div>
+                <p class="rb-ferien-hint" id="rb-ferien-hint"><?php esc_html_e('Ersten Tag antippen.', 'rewan-booking'); ?></p>
             </div>
 
-            <style>
-                .rb-abs-dashboard { max-width:1200px; }
-                .rb-abs-intro { color:#646970; margin:0 0 16px; font-size:15px; line-height:1.55; max-width:52em; }
-                .rb-abs-dash-title { font-size:18px; font-weight:600; margin:20px 0 6px; letter-spacing:-0.02em; }
-                .rb-abs-dash-lead { color:#646970; margin:0 0 16px; font-size:14px; line-height:1.5; }
-                .rb-abs-days-off-shell { margin:16px 0 20px; }
-                .rb-abs-days-off-shell .card { margin-bottom:0; }
-                .rb-abs-days-off-filter-wrap { display:flex; flex-wrap:wrap; align-items:flex-start; gap:18px 28px; margin-bottom:16px; }
-                .rb-abs-days-off-filter { flex:1 1 300px; width:100%; max-width:min(100%,480px); min-width:min(100%,260px); }
-                .rb-abs-days-off-legend { flex:1 1 260px; min-width:min(100%,220px); padding:12px 14px; border-radius:10px; border:1px solid #e8eaef; background:#f8fafc; }
-                .rb-abs-days-off-legend-head { display:flex; flex-direction:column; gap:4px; margin-bottom:10px; }
-                .rb-abs-days-off-legend-title { font-weight:700; font-size:13px; color:#1d2327; letter-spacing:.02em; }
-                .rb-abs-days-off-legend-hint { font-size:12px; color:#646970; line-height:1.45; }
-                .rb-abs-days-off-legend-list { list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:8px 10px; }
-                .rb-abs-days-off-legend-list li { margin:0; padding:0; }
-                .rb-abs-days-off-legend-item {
-                    display:inline-flex; align-items:center; gap:8px; margin:0; padding:6px 10px 6px 8px;
-                    border:1px solid #e2e8f0; border-radius:999px; background:#fff; cursor:pointer; font-size:13px; color:#1d2327;
-                    line-height:1.3; transition:box-shadow .15s,border-color .15s,background .15s;
-                }
-                .rb-abs-days-off-legend-item:hover { border-color:#cbd5e1; box-shadow:0 1px 3px rgba(15,23,42,.08); }
-                .rb-abs-days-off-legend-item.is-selected { border-color:#2271b1; box-shadow:0 0 0 1px rgba(34,113,177,.25); font-weight:600; }
-                .rb-abs-days-off-swatch { width:14px; height:14px; border-radius:50%; flex-shrink:0; background:var(--rb-emp-swatch,#2271b1); box-shadow:inset 0 0 0 1px rgba(0,0,0,.12); }
-                .rb-abs-days-off-legend-name { text-align:left; flex:1; min-width:0; }
-                @media (max-width: 782px) {
-                    .rb-abs-days-off-filter-wrap {
-                        flex-direction: column;
-                        align-items: stretch;
-                        gap: 14px;
-                        margin-bottom: 14px;
-                    }
-                    .rb-abs-days-off-filter {
-                        flex: 1 1 auto;
-                        max-width: none;
-                        min-width: 0;
-                    }
-                    .rb-abs-days-off-legend {
-                        flex: 1 1 auto;
-                        min-width: 0;
-                        width: 100%;
-                        max-width: none;
-                        padding: 16px 14px;
-                        box-sizing: border-box;
-                    }
-                    .rb-abs-days-off-legend-head { margin-bottom: 12px; gap: 6px; }
-                    .rb-abs-days-off-legend-title { font-size: 14px; }
-                    .rb-abs-days-off-legend-hint { font-size: 13px; line-height: 1.5; }
-                    .rb-abs-days-off-legend-list {
-                        flex-direction: column;
-                        flex-wrap: nowrap;
-                        gap: 10px;
-                    }
-                    .rb-abs-days-off-legend-list li { width: 100%; }
-                    .rb-abs-days-off-legend-item {
-                        width: 100%;
-                        min-height: 48px;
-                        padding: 12px 14px;
-                        justify-content: flex-start;
-                        font-size: 15px;
-                        border-radius: 10px;
-                        box-sizing: border-box;
-                        -webkit-tap-highlight-color: rgba(34, 113, 177, 0.15);
-                        touch-action: manipulation;
-                    }
-                    .rb-abs-days-off-legend-item:active {
-                        background: #f1f5f9;
-                    }
-                    @media (hover: hover) {
-                        .rb-abs-days-off-legend-item:active { transform: scale(0.99); }
-                    }
-                    @media (prefers-reduced-motion: reduce) {
-                        .rb-abs-days-off-legend-item:active { transform: none; }
-                    }
-                    .rb-abs-days-off-swatch {
-                        width: 18px;
-                        height: 18px;
-                    }
-                }
-                .rb-abs-page {
-                    --rb-abs-radius:12px; --rb-abs-border:#e8eaef; --rb-abs-shadow:0 4px 20px rgba(15,23,42,.07), 0 1px 3px rgba(15,23,42,.05);
-                    margin-top:4px;
-                }
-                .rb-abs-form-top { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:10px; margin-bottom:14px; }
-                .rb-abs-form-top .button { min-height:44px; }
-                .rb-abs-form-stack { display:flex; flex-direction:column; gap:18px; }
-                .rb-abs-panel {
-                    background:#fff; border-radius:var(--rb-abs-radius); padding:22px 22px 20px;
-                    box-shadow:var(--rb-abs-shadow); border:1px solid var(--rb-abs-border);
-                }
-                .rb-abs-panel__step { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%;
-                    background:#2271b1; color:#fff; font-size:13px; font-weight:700; margin-right:10px; vertical-align:middle; }
-                .rb-abs-panel h3 { margin:0 0 16px; font-size:15px; font-weight:600; color:#1d2327; letter-spacing:-0.01em; line-height:28px; }
-                .rb-abs-panel--actions { padding:18px 22px; display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
-                .rb-abs-panel--actions p.submit { margin:0 !important; padding:0 !important; }
-                .rb-abs-panel--actions .button-primary { min-height:48px; padding:0 28px !important; font-size:15px !important; border-radius:8px !important; box-shadow:0 2px 6px rgba(34,113,177,.25); width:100%; max-width:100%; }
-                .rb-abs-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px 18px; }
-                .rb-abs-field label { display:block; font-weight:600; margin-bottom:8px; font-size:14px; color:#1d2327; }
-                .rb-abs-field input[type="text"],
-                .rb-abs-field input[type="date"],
-                .rb-abs-field input[type="time"],
-                .rb-abs-field select {
-                    width:100%; min-height:48px; font-size:16px; padding:10px 12px; box-sizing:border-box;
-                    border-radius:8px; border:1px solid #d0d5dd; background:#fff;
-                }
-                .rb-abs-field input:focus, .rb-abs-field select:focus { border-color:#2271b1; outline:none; box-shadow:0 0 0 1px #2271b1; }
-                .rb-abs-field-full { grid-column:1 / -1; }
-                .rb-abs-toggle-row { display:flex; align-items:center; gap:12px; min-height:48px; padding:4px 0; }
-                .rb-abs-toggle-row input[type="checkbox"] { width:22px; height:22px; flex-shrink:0; accent-color:#2271b1; }
-                .rb-abs-toggle-row label { margin:0; font-weight:600; font-size:15px; }
-                .rb-abs-time-panel { margin-top:12px; }
-                .rb-abs-time-panel-inner { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px 18px; padding-top:4px; }
-                .rb-abs-hint { font-size:13px; color:#646970; margin:10px 0 0; line-height:1.5; }
-                .rb-abs-hint--muted { margin-top:6px; font-size:12px; color:#8c8f94; }
-                .rb-abs-time-panel.is-all-day .rb-abs-time-panel-inner { opacity:.45; pointer-events:none; }
-                .rb-abs-page {
-                    margin-top: 18px;
-                    padding: 18px 20px 22px;
-                    border: 1px solid #e8eaef;
-                    border-radius: 12px;
-                    background: linear-gradient(180deg, #ffffff, #fbfcfe);
-                    box-shadow: 0 2px 10px rgba(15,23,42,.05);
-                }
-                .rb-abs-list-title {
-                    display:flex; align-items:center; gap:10px;
-                    font-size:20px; font-weight:700; margin:2px 0 4px; letter-spacing:-0.02em; color:#0f172a;
-                }
-                .rb-abs-list-count {
-                    display:inline-flex; align-items:center; justify-content:center;
-                    min-width:28px; height:28px; padding:0 9px; border-radius:999px;
-                    background:#eef2ff; color:#3730a3; font-size:12px; font-weight:700;
-                    border:1px solid #c7d2fe;
-                }
-                .rb-abs-table-wrap {
-                    margin-top: 14px;
-                    overflow: auto;
-                    border: 1px solid #e2e8f0;
-                    border-radius: 12px;
-                    background: #fff;
-                    box-shadow: 0 1px 3px rgba(15,23,42,.05);
-                }
-                .rb-abs-table {
-                    width: 100%;
-                    border-collapse: separate;
-                    border-spacing: 0;
-                    min-width: 520px;
-                }
-                .rb-abs-table thead th {
-                    text-align: left;
-                    font-size: 12px;
-                    font-weight: 700;
-                    letter-spacing: .04em;
-                    text-transform: uppercase;
-                    color: #475569;
-                    background: #f8fafc;
-                    border-bottom: 1px solid #e2e8f0;
-                    padding: 12px 14px;
-                    white-space: nowrap;
-                }
-                .rb-abs-table tbody td {
-                    padding: 12px 14px;
-                    border-bottom: 1px solid #eef2f7;
-                    vertical-align: middle;
-                    color: #0f172a;
-                    font-size: 14px;
-                }
-                .rb-abs-table tbody tr:last-child td {
-                    border-bottom: none;
-                }
-                .rb-abs-table tbody tr:hover td {
-                    background: #f8fbff;
-                }
-                .rb-abs-col-name { font-weight: 700; }
-                .rb-abs-col-actions {
-                    display: flex;
-                    gap: 8px;
-                    justify-content: flex-end;
-                    align-items: center;
-                    white-space: nowrap;
-                }
-                .rb-abs-table .button { min-height:34px !important; font-size:13px !important; font-weight:600 !important; margin:0 !important; border-radius:8px !important; }
-                .rb-abs-edit.button.button-secondary { border-color:#2271b1; color:#2271b1; }
-                .rb-abs-delete.button {
-                    border:2px solid #c62828 !important; color:#b71c1c !important; background:#fff5f5 !important;
-                    box-shadow:0 1px 2px rgba(198,40,40,.08) !important;
-                }
-                .rb-abs-delete.button:hover, .rb-abs-delete.button:focus {
-                    border-color:#b71c1c !important; color:#fff !important; background:#d32f2f !important; box-shadow:0 2px 8px rgba(211,47,47,.25) !important;
-                }
-                .rb-abs-empty {
-                    margin-top:14px; padding:34px 20px; text-align:center; color:#64748b; background:#fff;
-                    border:2px dashed #dde3eb; border-radius:var(--rb-abs-radius); font-size:15px;
-                }
-                @media (max-width: 782px) {
-                    .rb-abs-days-off-shell #bookly-holidays-container .jCal-wrap {
-                        overflow-x: hidden;
-                    }
-                    .rb-abs-days-off-shell #bookly-holidays-container .jCalMo {
-                        float: none !important;
-                        width: 100% !important;
-                        max-width: 100%;
-                        clear: both;
-                        margin: 0 0 12px !important;
-                    }
-                    .rb-abs-days-off-shell #bookly-holidays-container .jCalMo:last-child {
-                        margin-bottom: 0 !important;
-                    }
-                    .rb-abs-days-off-shell #bookly-holidays-container .jCalMo .day,
-                    .rb-abs-days-off-shell #bookly-holidays-container .jCalMo .pday,
-                    .rb-abs-days-off-shell #bookly-holidays-container .jCalMo .dow {
-                        width: calc(100% / 7) !important;
-                        box-sizing: border-box;
-                    }
-                }
-                @media (max-width: 680px) {
-                    .rb-abs-grid, .rb-abs-time-panel-inner { grid-template-columns:1fr; }
-                    .rb-abs-page { padding:14px; }
-                }
-            </style>
+            <div class="rb-ferien-sheet" id="rb-ferien-sheet" hidden>
+                <p class="rb-ferien-sheet-title" id="rb-ferien-sheet-title"></p>
+                <label class="rb-ferien-note" id="rb-ferien-note-wrap">
+                    <?php esc_html_e('Was war das?', 'rewan-booking'); ?>
+                    <input type="text" id="rb-ferien-title" value="Ferien" maxlength="80" autocomplete="off">
+                </label>
+                <button type="button" class="rb-ferien-save" id="rb-ferien-save"><?php esc_html_e('Speichern', 'rewan-booking'); ?></button>
+                <a class="rb-ferien-delete" id="rb-ferien-delete" hidden href="#"><?php esc_html_e('Diese Ferien löschen', 'rewan-booking'); ?></a>
+                <button type="button" class="rb-ferien-cancel" id="rb-ferien-cancel"><?php esc_html_e('Abbrechen', 'rewan-booking'); ?></button>
+            </div>
 
-            <div class="rb-abs-page">
-
-            <h2 class="rb-abs-list-title">
-                <?php esc_html_e('Vorhandene Einträge', 'rewan-booking'); ?>
-                <span class="rb-abs-list-count"><?php echo esc_html((string) count($absences)); ?></span>
-            </h2>
-            <?php if (!empty($absences)) : ?>
-                <div class="rb-abs-table-wrap">
-                    <table class="rb-abs-table">
-                        <thead>
-                            <tr>
-                                <th><?php esc_html_e('Mitarbeiter', 'rewan-booking'); ?></th>
-                                <th><?php esc_html_e('Datum / Zeitraum', 'rewan-booking'); ?></th>
-                                <th><?php esc_html_e('Details', 'rewan-booking'); ?></th>
-                                <th style="text-align:right;"><?php esc_html_e('Aktion', 'rewan-booking'); ?></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($absences as $row) : ?>
-                                <?php
-                                $delete_url = wp_nonce_url(
-                                    admin_url('admin-post.php?action=rewan_booking_delete_absence&absence_id=' . (int) $row['id']),
-                                    'rewan_booking_delete_absence_' . (int) $row['id']
-                                );
-                                $edit_url = add_query_arg(
-                                    array(
-                                        'page' => 'rewan-booking-absences',
-                                        'edit_absence' => (int) $row['id'],
-                                    ),
-                                    admin_url('admin.php')
-                                );
-                                ?>
-                                <tr>
-                                    <td class="rb-abs-col-name"><?php echo esc_html($row['employee_name']); ?></td>
-                                    <td><?php echo esc_html($this->format_absence_card_period_header($row)); ?></td>
-                                    <td>
-                                        <?php echo esc_html($this->format_absence_card_detail($row)); ?>
-                                        <?php if (!empty($row['title'])) : ?>
-                                            <br><small><?php echo esc_html($row['title']); ?></small>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="rb-abs-col-actions">
-                                        <a class="button button-secondary rb-abs-edit" href="<?php echo esc_url($edit_url); ?>"><?php esc_html_e('Bearbeiten', 'rewan-booking'); ?></a>
-                                        <a class="button button-secondary rb-abs-delete" href="<?php echo esc_url($delete_url); ?>" onclick="return confirm(<?php echo wp_json_encode(__('Eintrag wirklich löschen?', 'rewan-booking')); ?>);"><?php esc_html_e('Löschen', 'rewan-booking'); ?></a>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
+            <div class="rb-ferien-list">
+                <div class="rb-ferien-list-head">
+                    <h2><?php esc_html_e('Einträge', 'rewan-booking'); ?> <span id="rb-ferien-count"><?php echo esc_html((string) count(array_filter($groups, function ($group) use ($days_off_employee_id) {
+                        return (int) $group['employee_id'] === (int) $days_off_employee_id;
+                    }))); ?></span></h2>
+                    <button type="button" class="rb-ferien-all" id="rb-ferien-all"><?php esc_html_e('Alle anzeigen', 'rewan-booking'); ?></button>
                 </div>
-            <?php else : ?>
-                <p class="rb-abs-empty"><?php esc_html_e('Keine Abwesenheiten vorhanden.', 'rewan-booking'); ?></p>
-            <?php endif; ?>
+                <?php if (empty($groups)) : ?>
+                    <p class="rb-ferien-empty"><?php esc_html_e('Noch keine Ferien.', 'rewan-booking'); ?></p>
+                <?php else : ?>
+                    <div class="rb-ferien-cards">
+                        <?php foreach ($groups as $group) : ?>
+                            <?php
+                            $ids = array_map('intval', $group['ids']);
+                            sort($ids);
+                            $id_key = implode(',', $ids);
+                            $delete_url = wp_nonce_url(
+                                admin_url('admin-post.php?action=rewan_booking_delete_absence&absence_ids=' . rawurlencode($id_key) . '&employee_id=' . (int) $group['employee_id']),
+                                'rewan_booking_delete_absence_group_' . $id_key
+                            );
+                            $start_label = date_i18n('d.m.Y', strtotime($group['start_date']));
+                            $end_label = date_i18n('d.m.Y', strtotime($group['end_date']));
+                            $start_dt = date_create($group['start_date']);
+                            $end_dt = date_create($group['end_date']);
+                            $day_count = ($start_dt && $end_dt) ? ((int) $start_dt->diff($end_dt)->days + 1) : 1;
+                            $period = $group['start_date'] === $group['end_date']
+                                ? $start_label
+                                : $start_label . ' – ' . $end_label;
+                            $note = $group['title'] !== '' ? $group['title'] : 'Ferien';
+                            if ((int) $group['is_all_day'] !== 1 && $group['start_time'] !== '') {
+                                $note .= ' · ' . $group['start_time'] . '–' . $group['end_time'];
+                            }
+                            ?>
+                            <article class="rb-ferien-card" data-employee="<?php echo esc_attr((string) $group['employee_id']); ?>" data-start="<?php echo esc_attr($group['start_date']); ?>" data-end="<?php echo esc_attr($group['end_date']); ?>"<?php echo (int) $group['employee_id'] === (int) $days_off_employee_id ? '' : ' hidden'; ?>>
+                                <div>
+                                    <strong><?php echo esc_html($group['employee_name']); ?></strong>
+                                    <span><?php echo esc_html($period); ?></span>
+                                    <em><?php echo esc_html($day_count === 1 ? '1 Tag · ' . $note : $day_count . ' Tage · ' . $note); ?></em>
+                                </div>
+                                <a class="rb-ferien-card-del" href="<?php echo esc_url($delete_url); ?>"><?php esc_html_e('Löschen', 'rewan-booking'); ?></a>
+                            </article>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
         <?php
@@ -2394,7 +2176,7 @@ class Rewan_Booking_Admin {
                         </tr>
                         <tr>
                             <th>Zeit (Verschieben)</th>
-                            <td><input type="time" name="start_time" value="<?php echo esc_attr(substr($booking['start_time'], 0, 5)); ?>" required></td>
+                            <td><?php $this->render_time_24('start_time', substr($booking['start_time'], 0, 5)); ?></td>
                         </tr>
                         <tr>
                             <th>Mitarbeiter</th>
@@ -3307,6 +3089,9 @@ class Rewan_Booking_Admin {
             'opening_hours_saved' => 'Öffnungszeiten gespeichert.',
             'quick_day_off_saved' => 'Freier Tag wurde gesetzt.',
             'settings_saved' => 'Einstellungen gespeichert.',
+            'smtp_test_sent' => 'Testmail ist raus. Schau in den Posteingang, nicht nur in den Spam.',
+            'emails_saved' => 'E-Mail-Texte gespeichert.',
+            'emails_test_sent' => 'Testmails wurden an die Benachrichtigungsadresse geschickt.',
         );
 
         $error_messages = array(
@@ -3316,6 +3101,10 @@ class Rewan_Booking_Admin {
             'absence_not_found' => 'Abwesenheit nicht gefunden.',
             'quick_day_off_exists' => 'Für diesen Zeitraum gibt es bereits eine Abwesenheit.',
             'invalid_notification_email' => 'Bitte eine gültige E-Mail-Adresse eingeben.',
+            'smtp_missing' => 'Für Hostpoint brauchst du das Postfach und das Passwort.',
+            'smtp_test_failed' => 'Die Einstellungen sind gespeichert. Die Testmail kam nicht an. Prüfe Postfach und Passwort.',
+            'emails_test_failed' => 'Die Texte sind gespeichert. Die Testmail konnte nicht gesendet werden. Prüfe die Benachrichtigungsadresse unter Einstellungen.',
+            'emails_missing_shop' => 'Bitte einen Shop-Namen eintragen.',
         );
 
         if (isset($success_messages[$message])) {
@@ -3325,8 +3114,311 @@ class Rewan_Booking_Admin {
         }
     }
 
+    public function render_emails_page() {
+        if (!current_user_can(REWAN_BOOKING_CAP_MANAGE)) {
+            wp_die(esc_html__('Keine Berechtigung.', 'rewan-booking'));
+        }
+
+        $shop = Rewan_Booking_Mail::shop();
+        $copy = Rewan_Booking_Mail::stored_copy();
+        $message = isset($_GET['message']) ? sanitize_text_field(wp_unslash($_GET['message'])) : '';
+        $preview = Rewan_Booking_Mail::compose('customer', Rewan_Booking_Mail::sample(), $copy);
+        $notify = get_option('rewan_booking_notification_email', '');
+        ?>
+        <div class="wrap rb-mail-page">
+            <h1><?php esc_html_e('E-Mails', 'rewan-booking'); ?></h1>
+            <?php $this->render_admin_notice($message); ?>
+            <p class="rb-mail-lead"><?php esc_html_e('So sieht die Mail mit Musterdaten aus. Texte und Shop-Angaben kannst du ändern, ohne eine Buchung auszulösen.', 'rewan-booking'); ?></p>
+
+            <div class="rb-mail-layout">
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="rb-mail-form">
+                    <input type="hidden" name="action" value="rewan_booking_save_emails">
+                    <?php wp_nonce_field('rewan_booking_save_emails_nonce', 'rewan_booking_save_emails_nonce'); ?>
+
+                    <section class="rb-mail-card">
+                        <h2><?php esc_html_e('Shop', 'rewan-booking'); ?></h2>
+                        <p class="rb-mail-hint"><?php esc_html_e('Name, Adresse und Telefon stehen im Formular-Kopf und in jeder Mail.', 'rewan-booking'); ?></p>
+                        <label for="rb-shop-name"><?php esc_html_e('Name', 'rewan-booking'); ?></label>
+                        <input type="text" id="rb-shop-name" name="shop_name" value="<?php echo esc_attr($shop['name']); ?>" required>
+                        <label for="rb-shop-address"><?php esc_html_e('Adresse', 'rewan-booking'); ?></label>
+                        <textarea id="rb-shop-address" name="shop_address" rows="2"><?php echo esc_textarea($shop['address']); ?></textarea>
+                        <label for="rb-shop-phone"><?php esc_html_e('Telefon', 'rewan-booking'); ?></label>
+                        <input type="text" id="rb-shop-phone" name="shop_phone" value="<?php echo esc_attr($shop['phone']); ?>">
+                        <label for="rb-shop-web"><?php esc_html_e('Web', 'rewan-booking'); ?></label>
+                        <input type="text" id="rb-shop-web" name="shop_web" value="<?php echo esc_attr($shop['web']); ?>">
+                    </section>
+
+                    <?php
+                    $blocks = array(
+                        'customer' => __('Mail an den Kunden', 'rewan-booking'),
+                        'staff' => __('Mail an den Mitarbeiter', 'rewan-booking'),
+                        'owner' => __('Mail an den Salon', 'rewan-booking'),
+                    );
+                    foreach ($blocks as $key => $title) :
+                        ?>
+                        <section class="rb-mail-card">
+                            <h2><?php echo esc_html($title); ?></h2>
+                            <label for="rb-<?php echo esc_attr($key); ?>-subject"><?php esc_html_e('Betreff', 'rewan-booking'); ?></label>
+                            <input type="text" id="rb-<?php echo esc_attr($key); ?>-subject" name="<?php echo esc_attr($key); ?>_subject" value="<?php echo esc_attr($copy[$key . '_subject']); ?>">
+                            <label for="rb-<?php echo esc_attr($key); ?>-intro"><?php esc_html_e('Text', 'rewan-booking'); ?></label>
+                            <textarea id="rb-<?php echo esc_attr($key); ?>-intro" name="<?php echo esc_attr($key); ?>_intro" rows="3"><?php echo esc_textarea($copy[$key . '_intro']); ?></textarea>
+                            <label for="rb-<?php echo esc_attr($key); ?>-note"><?php esc_html_e('Hinweis unten', 'rewan-booking'); ?></label>
+                            <textarea id="rb-<?php echo esc_attr($key); ?>-note" name="<?php echo esc_attr($key); ?>_note" rows="2"><?php echo esc_textarea($copy[$key . '_note']); ?></textarea>
+                        </section>
+                    <?php endforeach; ?>
+
+                    <p class="rb-mail-hint"><?php esc_html_e('Platzhalter: {name} {service} {date} {time} {barber} {price} {phone} {notes} {shop} {address} {shop_phone} {web}', 'rewan-booking'); ?></p>
+                    <p class="rb-mail-actions">
+                        <button type="submit" class="button button-primary" name="save_emails" value="1"><?php esc_html_e('Texte speichern', 'rewan-booking'); ?></button>
+                        <button type="submit" class="button" name="send_test" value="1"><?php esc_html_e('Testmails schicken', 'rewan-booking'); ?></button>
+                    </p>
+                    <p class="rb-mail-hint"><?php echo esc_html(sprintf(__('Die drei Testmails gehen an %s, nicht an einen Kunden.', 'rewan-booking'), $notify !== '' ? $notify : __('die Benachrichtigungsadresse im Dashboard', 'rewan-booking'))); ?></p>
+                </form>
+
+                <aside class="rb-mail-preview">
+                    <div class="rb-mail-preview-bar">
+                        <span><?php esc_html_e('Beispiel', 'rewan-booking'); ?></span>
+                        <button type="button" class="rb-mail-tab is-active" data-mail-type="customer"><?php esc_html_e('Kunde', 'rewan-booking'); ?></button>
+                        <button type="button" class="rb-mail-tab" data-mail-type="staff"><?php esc_html_e('Mitarbeiter', 'rewan-booking'); ?></button>
+                        <button type="button" class="rb-mail-tab" data-mail-type="owner"><?php esc_html_e('Salon', 'rewan-booking'); ?></button>
+                    </div>
+                    <p class="rb-mail-subject" id="rb-mail-subject"><?php echo esc_html($preview['subject']); ?></p>
+                    <iframe id="rb-mail-frame" title="<?php esc_attr_e('Beispielmail', 'rewan-booking'); ?>"></iframe>
+                </aside>
+            </div>
+        </div>
+        <script>
+        (function () {
+            var form = document.getElementById('rb-mail-form');
+            var frame = document.getElementById('rb-mail-frame');
+            var subjectEl = document.getElementById('rb-mail-subject');
+            var type = 'customer';
+            var timer = null;
+            var ajaxUrl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
+            var nonce = <?php echo wp_json_encode(wp_create_nonce('rewan_booking_email_preview')); ?>;
+            var initialHtml = <?php echo wp_json_encode($preview['html']); ?>;
+
+            function show(html, subject) {
+                if (frame) {
+                    frame.srcdoc = html;
+                }
+                if (subjectEl) {
+                    subjectEl.textContent = subject || '';
+                }
+            }
+
+            function refresh() {
+                if (!form) return;
+                var data = new URLSearchParams(new FormData(form));
+                data.set('action', 'rewan_booking_email_preview');
+                data.set('nonce', nonce);
+                data.set('preview_type', type);
+                fetch(ajaxUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                    body: data.toString()
+                }).then(function (response) { return response.json(); }).then(function (payload) {
+                    if (payload && payload.success && payload.data) {
+                        show(payload.data.html, payload.data.subject);
+                    }
+                }).catch(function () {});
+            }
+
+            show(initialHtml, subjectEl ? subjectEl.textContent : '');
+
+            document.querySelectorAll('.rb-mail-tab').forEach(function (button) {
+                button.addEventListener('click', function () {
+                    type = button.getAttribute('data-mail-type') || 'customer';
+                    document.querySelectorAll('.rb-mail-tab').forEach(function (el) {
+                        el.classList.toggle('is-active', el === button);
+                    });
+                    refresh();
+                });
+            });
+
+            if (form) {
+                form.addEventListener('input', function () {
+                    window.clearTimeout(timer);
+                    timer = window.setTimeout(refresh, 280);
+                });
+            }
+        })();
+        </script>
+        <?php
+    }
+
+    public function ajax_email_preview() {
+        if (!current_user_can(REWAN_BOOKING_CAP_MANAGE)) {
+            wp_send_json_error(array('message' => 'Keine Berechtigung.'));
+        }
+        check_ajax_referer('rewan_booking_email_preview', 'nonce');
+
+        $type = isset($_POST['preview_type']) ? sanitize_key(wp_unslash($_POST['preview_type'])) : 'customer';
+        $shop = array(
+            'name' => isset($_POST['shop_name']) ? sanitize_text_field(wp_unslash($_POST['shop_name'])) : '',
+            'address' => isset($_POST['shop_address']) ? sanitize_textarea_field(wp_unslash($_POST['shop_address'])) : '',
+            'phone' => isset($_POST['shop_phone']) ? sanitize_text_field(wp_unslash($_POST['shop_phone'])) : '',
+            'web' => isset($_POST['shop_web']) ? sanitize_text_field(wp_unslash($_POST['shop_web'])) : '',
+        );
+        $overrides = array();
+        foreach (array_keys(Rewan_Booking_Mail::default_copy()) as $key) {
+            if (!isset($_POST[$key])) {
+                continue;
+            }
+            $raw = wp_unslash($_POST[$key]);
+            $overrides[$key] = (strpos($key, 'subject') !== false)
+                ? sanitize_text_field($raw)
+                : sanitize_textarea_field($raw);
+        }
+        $mail = Rewan_Booking_Mail::compose($type, Rewan_Booking_Mail::sample($shop), Rewan_Booking_Mail::copy_with_overrides($overrides));
+        wp_send_json_success($mail);
+    }
+
+    public function handle_save_emails() {
+        if (!current_user_can(REWAN_BOOKING_CAP_MANAGE)) {
+            wp_die('Keine Berechtigung.');
+        }
+        if (
+            !isset($_POST['rewan_booking_save_emails_nonce']) ||
+            !wp_verify_nonce($_POST['rewan_booking_save_emails_nonce'], 'rewan_booking_save_emails_nonce')
+        ) {
+            wp_die('Sicherheitsprüfung fehlgeschlagen.');
+        }
+
+        $shop_name = isset($_POST['shop_name']) ? sanitize_text_field(wp_unslash($_POST['shop_name'])) : '';
+        if ($shop_name === '') {
+            wp_redirect(admin_url('admin.php?page=rewan-booking-emails&message=emails_missing_shop'));
+            exit;
+        }
+
+        update_option('rewan_booking_shop', array(
+            'name' => $shop_name,
+            'address' => isset($_POST['shop_address']) ? sanitize_textarea_field(wp_unslash($_POST['shop_address'])) : '',
+            'phone' => isset($_POST['shop_phone']) ? sanitize_text_field(wp_unslash($_POST['shop_phone'])) : '',
+            'web' => isset($_POST['shop_web']) ? sanitize_text_field(wp_unslash($_POST['shop_web'])) : '',
+        ), false);
+
+        $copy = array();
+        foreach (array_keys(Rewan_Booking_Mail::default_copy()) as $key) {
+            $raw = isset($_POST[$key]) ? wp_unslash($_POST[$key]) : '';
+            $copy[$key] = (strpos($key, 'subject') !== false)
+                ? sanitize_text_field($raw)
+                : sanitize_textarea_field($raw);
+        }
+        update_option('rewan_booking_email_copy', $copy, false);
+
+        $redirect = 'emails_saved';
+        if (isset($_POST['send_test'])) {
+            $to = (string) get_option('rewan_booking_notification_email', '');
+            $redirect = Rewan_Booking_Mail::send_samples($to) ? 'emails_test_sent' : 'emails_test_failed';
+        }
+        wp_redirect(admin_url('admin.php?page=rewan-booking-emails&message=' . $redirect));
+        exit;
+    }
+
     public function handle_add_service() {
         $this->handle_save_service();
+    }
+
+    public function render_settings_page() {
+        if (!current_user_can(REWAN_BOOKING_CAP_MANAGE)) {
+            wp_die(esc_html__('Keine Berechtigung.', 'rewan-booking'));
+        }
+
+        $message = isset($_GET['message']) ? sanitize_text_field(wp_unslash($_GET['message'])) : '';
+        $delivery = Rewan_Booking_Mail::delivery();
+        $notify = (string) get_option('rewan_booking_notification_email', '');
+        $has_password = Rewan_Booking_Mail::smtp_password() !== '';
+        $has_token = (string) get_option('rewan_booking_github_token', '') !== '';
+        $smtp_error = get_transient('rewan_booking_smtp_error');
+        if (is_string($smtp_error) && $smtp_error !== '') {
+            delete_transient('rewan_booking_smtp_error');
+        } else {
+            $smtp_error = '';
+        }
+        $shop_name = Rewan_Booking_Mail::shop()['name'];
+        ?>
+        <div class="wrap rb-set-page">
+            <h1><?php esc_html_e('Einstellungen', 'rewan-booking'); ?></h1>
+            <?php $this->render_admin_notice($message); ?>
+            <?php if ($smtp_error !== '') : ?>
+                <p class="rb-set-error"><?php echo esc_html($smtp_error); ?></p>
+            <?php endif; ?>
+            <p class="rb-set-lead"><?php esc_html_e('Benachrichtigung, Versand über Hostpoint und Updates. Die Mailtexte selbst stehen unter E-Mails.', 'rewan-booking'); ?></p>
+
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <input type="hidden" name="action" value="rewan_booking_save_settings">
+                <?php wp_nonce_field('rewan_booking_save_settings_nonce', 'rewan_booking_save_settings_nonce'); ?>
+
+                <section class="rb-set-card">
+                    <h2><?php esc_html_e('Buchungen', 'rewan-booking'); ?></h2>
+                    <p class="rb-set-hint"><?php esc_html_e('Shortcode für die Seite', 'rewan-booking'); ?> <code>[rewan_booking_form]</code></p>
+                    <label for="rewan-notify-email">
+                        <span><?php esc_html_e('E-Mail für neue Buchungen', 'rewan-booking'); ?></span>
+                        <input type="email" id="rewan-notify-email" name="notification_email" value="<?php echo esc_attr($notify); ?>" required>
+                    </label>
+                    <p class="rb-set-hint"><?php esc_html_e('Hierhin geht die Meldung an den Salon. Das kann dieselbe Adresse sein wie das Postfach unten.', 'rewan-booking'); ?></p>
+                </section>
+
+                <section class="rb-set-card">
+                    <h2><?php esc_html_e('Versand über Hostpoint', 'rewan-booking'); ?></h2>
+                    <p class="rb-set-hint"><?php esc_html_e('Die Mail meldet sich am Postfach an. Dann liegt sie eher im Posteingang als im Spam.', 'rewan-booking'); ?></p>
+                    <label class="rb-emp-switch">
+                        <input type="checkbox" name="smtp_enabled" value="1" <?php checked($delivery['smtp_enabled'], 1); ?>>
+                        <span><?php esc_html_e('Über Hostpoint senden', 'rewan-booking'); ?><small><?php esc_html_e('Gilt für die Terminmails dieser Website.', 'rewan-booking'); ?></small></span>
+                    </label>
+                    <dl class="rb-set-facts">
+                        <div><dt><?php esc_html_e('Server', 'rewan-booking'); ?></dt><dd>asmtp.mail.hostpoint.ch</dd></div>
+                        <div><dt><?php esc_html_e('Port', 'rewan-booking'); ?></dt><dd>587</dd></div>
+                        <div><dt><?php esc_html_e('Verschlüsselung', 'rewan-booking'); ?></dt><dd>STARTTLS</dd></div>
+                    </dl>
+                    <div class="rb-add-fields is-pair">
+                        <label for="rewan-from-name">
+                            <span><?php esc_html_e('Absender-Name', 'rewan-booking'); ?></span>
+                            <input type="text" id="rewan-from-name" name="from_name" value="<?php echo esc_attr($delivery['from_name']); ?>" placeholder="<?php echo esc_attr($shop_name); ?>">
+                        </label>
+                        <label for="rewan-from-email">
+                            <span><?php esc_html_e('Postfach', 'rewan-booking'); ?></span>
+                            <input type="email" id="rewan-from-email" name="from_email" value="<?php echo esc_attr($delivery['from_email']); ?>" placeholder="info@deinedomain.ch" autocomplete="off">
+                        </label>
+                        <label class="is-full" for="rewan-smtp-password">
+                            <span><?php esc_html_e('Passwort des Postfachs', 'rewan-booking'); ?></span>
+                            <input type="password" id="rewan-smtp-password" name="smtp_password" value="" autocomplete="new-password" placeholder="<?php echo esc_attr($has_password ? __('Passwort ist gespeichert', 'rewan-booking') : ''); ?>">
+                        </label>
+                    </div>
+                    <p class="rb-set-hint"><?php esc_html_e('Absender und Anmeldung sind dieselbe Adresse. Ein leeres Passwortfeld lässt das gespeicherte Passwort stehen.', 'rewan-booking'); ?></p>
+                    <details class="rb-set-more">
+                        <summary><?php esc_html_e('Server ändern', 'rewan-booking'); ?></summary>
+                        <label for="rewan-smtp-host">
+                            <span><?php esc_html_e('SMTP-Server', 'rewan-booking'); ?></span>
+                            <input type="text" id="rewan-smtp-host" name="smtp_host" value="<?php echo esc_attr($delivery['smtp_host']); ?>">
+                        </label>
+                    </details>
+                    <ol class="rb-set-steps">
+                        <li><?php esc_html_e('Im Hostpoint Control Panel ein Postfach anlegen.', 'rewan-booking'); ?></li>
+                        <li><?php esc_html_e('Adresse und Passwort hier eintragen und den Haken setzen.', 'rewan-booking'); ?></li>
+                        <li><?php esc_html_e('Testmail senden und im Posteingang nachsehen.', 'rewan-booking'); ?></li>
+                        <li><?php esc_html_e('Bei der Domain DKIM einschalten. SPF setzt Hostpoint für eigene Domains meist selbst.', 'rewan-booking'); ?></li>
+                    </ol>
+                    <p class="rb-set-hint"><a href="<?php echo esc_url(admin_url('admin.php?page=rewan-booking-emails')); ?>"><?php esc_html_e('Texte der Bestätigung bearbeiten', 'rewan-booking'); ?></a></p>
+                </section>
+
+                <section class="rb-set-card">
+                    <h2><?php esc_html_e('Updates', 'rewan-booking'); ?></h2>
+                    <label for="rewan-github-token">
+                        <span><?php esc_html_e('GitHub-Token', 'rewan-booking'); ?></span>
+                        <input type="password" id="rewan-github-token" name="github_token" value="" autocomplete="new-password" placeholder="<?php echo esc_attr($has_token ? __('Token ist gespeichert', 'rewan-booking') : ''); ?>">
+                    </label>
+                    <p class="rb-set-hint"><?php esc_html_e('Leer lassen, um den Token zu behalten. Nur nötig, wenn das Repo privat ist. Buchungen bleiben beim Update erhalten.', 'rewan-booking'); ?></p>
+                </section>
+
+                <div class="rb-set-actions">
+                    <?php submit_button(__('Speichern', 'rewan-booking'), 'primary', 'submit', false); ?>
+                    <button type="submit" class="button" name="send_test" value="1"><?php esc_html_e('Speichern und Testmail', 'rewan-booking'); ?></button>
+                </div>
+            </form>
+        </div>
+        <?php
     }
 
     public function handle_save_settings() {
@@ -3344,11 +3436,37 @@ class Rewan_Booking_Admin {
         $notification_email = isset($_POST['notification_email']) ? sanitize_email(wp_unslash($_POST['notification_email'])) : '';
 
         if (empty($notification_email) || !is_email($notification_email)) {
-            wp_redirect(admin_url('admin.php?page=rewan-booking&message=invalid_notification_email'));
+            wp_redirect(admin_url('admin.php?page=rewan-booking-settings&message=invalid_notification_email'));
             exit;
         }
 
+        $from_email = isset($_POST['from_email']) ? sanitize_email(wp_unslash($_POST['from_email'])) : '';
+        $from_name = isset($_POST['from_name']) ? sanitize_text_field(wp_unslash($_POST['from_name'])) : '';
+        $smtp_enabled = isset($_POST['smtp_enabled']) ? 1 : 0;
+        $smtp_host = isset($_POST['smtp_host']) ? strtolower(sanitize_text_field(wp_unslash($_POST['smtp_host']))) : '';
+        if (!preg_match('/^[a-z0-9.-]+$/', $smtp_host)) {
+            $smtp_host = 'asmtp.mail.hostpoint.ch';
+        }
+        $smtp_password = isset($_POST['smtp_password']) ? (string) wp_unslash($_POST['smtp_password']) : '';
+        $smtp_password = str_replace(array("\r", "\n", "\0"), '', $smtp_password);
+        if ($smtp_password !== '') {
+            update_option('rewan_booking_smtp_password', $smtp_password, false);
+        }
+        $stored_password = (string) get_option('rewan_booking_smtp_password', '');
+        $smtp_ready = is_email($from_email) && $stored_password !== '';
+        $smtp_blocked = $smtp_enabled && !$smtp_ready;
+        if ($smtp_blocked) {
+            $smtp_enabled = 0;
+        }
+
         update_option('rewan_booking_notification_email', $notification_email);
+        update_option('rewan_booking_mail_delivery', array(
+            'from_name' => $from_name,
+            'from_email' => is_email($from_email) ? $from_email : '',
+            'smtp_enabled' => $smtp_enabled,
+            'smtp_host' => $smtp_host,
+        ), false);
+
         if (isset($_POST['github_token'])) {
             $github_token = trim((string) wp_unslash($_POST['github_token']));
             if ($github_token !== '') {
@@ -3356,7 +3474,14 @@ class Rewan_Booking_Admin {
                 delete_transient('rewan_booking_remote_version');
             }
         }
-        wp_redirect(admin_url('admin.php?page=rewan-booking&message=settings_saved'));
+
+        $redirect = 'settings_saved';
+        if ($smtp_blocked) {
+            $redirect = 'smtp_missing';
+        } elseif (isset($_POST['send_test'])) {
+            $redirect = Rewan_Booking_Mail::send_delivery_test($notification_email) ? 'smtp_test_sent' : 'smtp_test_failed';
+        }
+        wp_redirect(admin_url('admin.php?page=rewan-booking-settings&message=' . $redirect));
         exit;
     }
 
@@ -3911,22 +4036,48 @@ class Rewan_Booking_Admin {
             wp_die('Keine Berechtigung.');
         }
 
-        $absence_id = isset($_GET['absence_id']) ? (int) $_GET['absence_id'] : 0;
-        if ($absence_id <= 0) {
+        $raw_ids = isset($_GET['absence_ids']) ? sanitize_text_field(wp_unslash($_GET['absence_ids'])) : '';
+        $ids = array();
+        if ($raw_ids !== '') {
+            foreach (explode(',', $raw_ids) as $part) {
+                $id = (int) $part;
+                if ($id > 0) {
+                    $ids[] = $id;
+                }
+            }
+            $ids = array_values(array_unique($ids));
+            sort($ids);
+        } elseif (isset($_GET['absence_id'])) {
+            $one = (int) $_GET['absence_id'];
+            if ($one > 0) {
+                $ids = array($one);
+            }
+        }
+        if (empty($ids)) {
             wp_redirect(admin_url('admin.php?page=rewan-booking-absences&message=absence_not_found'));
             exit;
         }
 
-        if (!wp_verify_nonce(isset($_GET['_wpnonce']) ? $_GET['_wpnonce'] : '', 'rewan_booking_delete_absence_' . $absence_id)) {
+        $id_key = implode(',', $ids);
+        $nonce_action = count($ids) > 1 || $raw_ids !== ''
+            ? 'rewan_booking_delete_absence_group_' . $id_key
+            : 'rewan_booking_delete_absence_' . $ids[0];
+        if (!wp_verify_nonce(isset($_GET['_wpnonce']) ? $_GET['_wpnonce'] : '', $nonce_action)) {
             wp_die('Sicherheitsprüfung fehlgeschlagen.');
         }
 
         global $wpdb;
         $table_name = $wpdb->prefix . 'rewan_booking_employee_absences';
+        foreach ($ids as $absence_id) {
+            $wpdb->delete($table_name, array('id' => $absence_id), array('%d'));
+        }
 
-        $wpdb->delete($table_name, array('id' => $absence_id), array('%d'));
-
-        wp_redirect(admin_url('admin.php?page=rewan-booking-absences&message=absence_deleted'));
+        $back = admin_url('admin.php?page=rewan-booking-absences&message=absence_deleted');
+        $employee_back = isset($_GET['employee_id']) ? (int) $_GET['employee_id'] : 0;
+        if ($employee_back > 0) {
+            $back = add_query_arg('employee_id', $employee_back, $back);
+        }
+        wp_redirect($back);
         exit;
     }
 
@@ -3945,6 +4096,71 @@ class Rewan_Booking_Admin {
             6 => __('Samstag', 'rewan-booking'),
             7 => __('Sonntag', 'rewan-booking'),
         );
+    }
+
+    /**
+     * Uhrzeit immer 00–23, unabhängig von der Browsersprache.
+     */
+    private function render_time_24($name, $value) {
+        if (!preg_match('/^(\d{2}):(\d{2})/', (string) $value, $match)) {
+            $match = array(1 => '09', 2 => '00');
+        }
+        $hour = $match[1];
+        $minute = $match[2];
+        $minutes = array();
+        for ($i = 0; $i < 60; $i += 5) {
+            $minutes[] = sprintf('%02d', $i);
+        }
+        if (!in_array($minute, $minutes, true)) {
+            $minutes[] = $minute;
+            sort($minutes);
+        }
+        echo '<span class="rb-time24">';
+        echo '<select class="rb-time24-h" aria-label="' . esc_attr__('Stunde', 'rewan-booking') . '">';
+        for ($i = 0; $i < 24; $i++) {
+            $hh = sprintf('%02d', $i);
+            echo '<option value="' . esc_attr($hh) . '"' . selected($hour, $hh, false) . '>' . esc_html($hh) . '</option>';
+        }
+        echo '</select><span class="rb-time24-sep" aria-hidden="true">:</span>';
+        echo '<select class="rb-time24-m" aria-label="' . esc_attr__('Minute', 'rewan-booking') . '">';
+        foreach ($minutes as $mm) {
+            echo '<option value="' . esc_attr($mm) . '"' . selected($minute, $mm, false) . '>' . esc_html($mm) . '</option>';
+        }
+        echo '</select>';
+        echo '<input type="hidden" name="' . esc_attr($name) . '" value="' . esc_attr($hour . ':' . $minute) . '">';
+        echo '</span>';
+        $this->render_time_24_script();
+    }
+
+    private function render_time_24_script() {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        ?>
+        <script>
+        (function () {
+            function sync(wrap) {
+                var hour = wrap.querySelector('.rb-time24-h');
+                var minute = wrap.querySelector('.rb-time24-m');
+                var hidden = wrap.querySelector('input[type="hidden"]');
+                if (hour && minute && hidden) {
+                    hidden.value = hour.value + ':' + minute.value;
+                }
+            }
+            document.addEventListener('change', function (event) {
+                var wrap = event.target.closest ? event.target.closest('.rb-time24') : null;
+                if (wrap) {
+                    sync(wrap);
+                }
+            });
+            document.addEventListener('submit', function () {
+                document.querySelectorAll('.rb-time24').forEach(sync);
+            }, true);
+        })();
+        </script>
+        <?php
     }
 
     public function render_opening_hours_page() {
@@ -3990,11 +4206,11 @@ class Rewan_Booking_Admin {
                             </label>
                             <label>
                                 <?php esc_html_e('Von', 'rewan-booking'); ?>
-                                <input type="time" name="start[<?php echo esc_attr((string) $w); ?>]" value="<?php echo esc_attr($st); ?>" step="60">
+                                <?php $this->render_time_24('start[' . $w . ']', $st); ?>
                             </label>
                             <label>
                                 <?php esc_html_e('Bis', 'rewan-booking'); ?>
-                                <input type="time" name="end[<?php echo esc_attr((string) $w); ?>]" value="<?php echo esc_attr($et); ?>" step="60">
+                                <?php $this->render_time_24('end[' . $w . ']', $et); ?>
                             </label>
                         </div>
                     <?php endfor; ?>
@@ -4092,121 +4308,65 @@ class Rewan_Booking_Admin {
         $labels = $this->get_global_weekday_labels();
         $message = isset($_GET['message']) ? sanitize_text_field(wp_unslash($_GET['message'])) : '';
         ?>
-        <div class="wrap rb-abs-dashboard rb-gb-page">
+        <div class="wrap rb-oh-page">
             <h1><?php esc_html_e('Sperrzeit', 'rewan-booking'); ?></h1>
             <?php $this->render_admin_notice($message); ?>
 
-            <div class="rb-gb-callout" role="note">
-                <strong><?php esc_html_e('Wirkung', 'rewan-booking'); ?></strong>
-                <?php esc_html_e('Nur Lücken innerhalb der Öffnung, zum Beispiel die Mittagspause. Geschlossene Tage gehören in die Öffnungszeiten. Die Sperre gilt für alle Mitarbeiter.', 'rewan-booking'); ?>
+            <div class="rb-oh-callout" role="note">
+                <strong><?php esc_html_e('Lücke in der Öffnung', 'rewan-booking'); ?></strong>
+                <?php esc_html_e('Nur Pausen innerhalb der Öffnungszeiten, zum Beispiel Mittag. Geschlossene Tage stellst du bei den Öffnungszeiten ein. Die Sperre gilt für alle Mitarbeiter.', 'rewan-booking'); ?>
             </div>
-
-            <style>
-                .rb-gb-page { max-width: 880px; }
-                .rb-gb-callout {
-                    margin: 0 0 22px; padding: 14px 16px 14px 18px; border-radius: 10px;
-                    border: 1px solid #c3d9e8; background: linear-gradient(135deg, #f0f6fb 0%, #e8f2fa 100%);
-                    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
-                    font-size: 14px; line-height: 1.55; color: #1e293b;
-                    border-left: 4px solid #2271b1;
-                }
-                .rb-gb-callout strong { display: block; margin-bottom: 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: #0c4a6e; }
-                .rb-gb-week-panel {
-                    background: #fff; border-radius: 12px; border: 1px solid #e2e8f0;
-                    box-shadow: 0 4px 20px rgba(15,23,42,.07); overflow: hidden; margin-bottom: 20px;
-                }
-                .rb-gb-week-table { width: 100%; border-collapse: collapse; }
-                .rb-gb-week-table th {
-                    text-align: left; padding: 14px 16px; font-size: 14px; font-weight: 700; color: #0f172a;
-                    background: #f8fafc; border-bottom: 1px solid #e2e8f0; width: 28%;
-                }
-                .rb-gb-week-table td { padding: 12px 16px; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
-                .rb-gb-week-table tr:last-child th, .rb-gb-week-table tr:last-child td { border-bottom: none; }
-                .rb-gb-week-table select.rb-gb-mode {
-                    width: 100%; max-width: 320px; min-height: 44px; font-size: 14px; border-radius: 8px;
-                    border: 1px solid #cbd5e1; padding: 6px 10px; background: #fff;
-                }
-                .rb-gb-week-times { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; }
-                .rb-gb-week-times .rb-gb-time-field label { display: block; font-size: 12px; font-weight: 600; color: #64748b; margin-bottom: 4px; }
-                .rb-gb-week-times input[type="time"] {
-                    min-height: 44px; font-size: 16px; border-radius: 8px; border: 1px solid #cbd5e1; padding: 6px 10px; min-width: 120px;
-                }
-                .rb-gb-week-times.is-muted input[type="time"] { opacity: 0.45; }
-                .rb-gb-submit { margin: 0; padding: 0; }
-                .rb-gb-submit .button-primary { min-height: 48px; padding-left: 24px; padding-right: 24px; font-size: 15px; border-radius: 8px; }
-                @media (max-width: 782px) {
-                    .rb-gb-week-table th, .rb-gb-week-table td { display: block; width: 100%; box-sizing: border-box; }
-                    .rb-gb-week-table th { border-bottom: none; padding-bottom: 6px; }
-                    .rb-gb-week-table td { padding-top: 0; }
-                }
-            </style>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="rb_week_schedule_form">
                 <input type="hidden" name="action" value="rewan_booking_save_week_schedule">
                 <?php wp_nonce_field('rewan_booking_save_week_schedule_nonce', 'rewan_booking_save_week_schedule_nonce'); ?>
 
-                <div class="rb-gb-week-panel">
-                    <table class="rb-gb-week-table widefat striped">
-                        <tbody>
-                        <?php for ($w = 1; $w <= 7; $w++) : ?>
-                            <?php
-                            $row = $by_weekday[$w];
-                            $mode = isset($row['block_mode']) ? (string) $row['block_mode'] : 'none';
-                            if (!in_array($mode, array('none', 'all_day', 'interval'), true)) {
-                                $mode = 'none';
-                            }
-                            $st = isset($row['start_time']) ? substr((string) $row['start_time'], 0, 5) : '12:00';
-                            $et = isset($row['end_time']) ? substr((string) $row['end_time'], 0, 5) : '13:00';
-                            ?>
-                            <tr class="rb-gb-week-row" data-weekday="<?php echo esc_attr((string) $w); ?>">
-                                <th scope="row"><?php echo esc_html($labels[$w]); ?></th>
-                                <td>
-                                    <select class="rb-gb-mode" name="week_mode[<?php echo esc_attr((string) $w); ?>]" id="rb_gb_mode_<?php echo esc_attr((string) $w); ?>" aria-label="<?php echo esc_attr($labels[$w]); ?>">
-                                        <option value="none" <?php selected($mode, 'none'); ?>><?php esc_html_e('Keine Sperre', 'rewan-booking'); ?></option>
-                                        <option value="all_day" <?php selected($mode, 'all_day'); ?>><?php esc_html_e('Ganzer Tag gesperrt', 'rewan-booking'); ?></option>
-                                        <option value="interval" <?php selected($mode, 'interval'); ?>><?php esc_html_e('Nur Zeitspanne sperren', 'rewan-booking'); ?></option>
-                                    </select>
-                                    <div class="rb-gb-week-times" id="rb_gb_times_<?php echo esc_attr((string) $w); ?>">
-                                        <div class="rb-gb-time-field">
-                                            <label for="rb_gb_st_<?php echo esc_attr((string) $w); ?>"><?php esc_html_e('Von', 'rewan-booking'); ?></label>
-                                            <input type="time" name="week_start[<?php echo esc_attr((string) $w); ?>]" id="rb_gb_st_<?php echo esc_attr((string) $w); ?>" value="<?php echo esc_attr($st); ?>" step="60">
-                                        </div>
-                                        <div class="rb-gb-time-field">
-                                            <label for="rb_gb_et_<?php echo esc_attr((string) $w); ?>"><?php esc_html_e('Bis', 'rewan-booking'); ?></label>
-                                            <input type="time" name="week_end[<?php echo esc_attr((string) $w); ?>]" id="rb_gb_et_<?php echo esc_attr((string) $w); ?>" value="<?php echo esc_attr($et); ?>" step="60">
-                                        </div>
-                                    </div>
-                                </td>
-                            </tr>
-                        <?php endfor; ?>
-                        </tbody>
-                    </table>
+                <div class="rb-oh-panel">
+                    <?php for ($w = 1; $w <= 7; $w++) : ?>
+                        <?php
+                        $row = $by_weekday[$w];
+                        $mode = isset($row['block_mode']) ? (string) $row['block_mode'] : 'none';
+                        if (!in_array($mode, array('none', 'all_day', 'interval'), true)) {
+                            $mode = 'none';
+                        }
+                        $st = isset($row['start_time']) ? substr((string) $row['start_time'], 0, 5) : '12:00';
+                        $et = isset($row['end_time']) ? substr((string) $row['end_time'], 0, 5) : '13:00';
+                        ?>
+                        <div class="rb-oh-row rb-gb-row">
+                            <div class="rb-oh-day"><?php echo esc_html($labels[$w]); ?></div>
+                            <label>
+                                <?php esc_html_e('Sperre', 'rewan-booking'); ?>
+                                <select class="rb-gb-mode" name="week_mode[<?php echo esc_attr((string) $w); ?>]" id="rb_gb_mode_<?php echo esc_attr((string) $w); ?>">
+                                    <option value="none" <?php selected($mode, 'none'); ?>><?php esc_html_e('Keine Sperre', 'rewan-booking'); ?></option>
+                                    <option value="interval" <?php selected($mode, 'interval'); ?>><?php esc_html_e('Zeitspanne', 'rewan-booking'); ?></option>
+                                    <option value="all_day" <?php selected($mode, 'all_day'); ?>><?php esc_html_e('Ganzer Tag', 'rewan-booking'); ?></option>
+                                </select>
+                            </label>
+                            <label>
+                                <?php esc_html_e('Von', 'rewan-booking'); ?>
+                                <?php $this->render_time_24('week_start[' . $w . ']', $st); ?>
+                            </label>
+                            <label>
+                                <?php esc_html_e('Bis', 'rewan-booking'); ?>
+                                <?php $this->render_time_24('week_end[' . $w . ']', $et); ?>
+                            </label>
+                        </div>
+                    <?php endfor; ?>
                 </div>
 
-                <p class="submit rb-gb-submit">
-                    <?php submit_button(__('Wochenplan speichern', 'rewan-booking'), 'primary', 'submit', false); ?>
-                </p>
+                <p class="submit"><?php submit_button(__('Sperrzeit speichern', 'rewan-booking'), 'primary', 'submit', false); ?></p>
             </form>
         </div>
         <script>
         (function () {
-            function rowUpdate(tr) {
-                var sel = tr.querySelector('.rb-gb-mode');
-                var wrap = tr.querySelector('.rb-gb-week-times');
-                if (!sel || !wrap) return;
-                var v = sel.value;
-                var on = v === 'interval';
-                wrap.classList.toggle('is-muted', !on);
-                wrap.querySelectorAll('input[type="time"]').forEach(function (inp) {
-                    inp.readOnly = !on;
-                });
-            }
-            document.querySelectorAll('.rb-gb-week-row').forEach(function (tr) {
-                var sel = tr.querySelector('.rb-gb-mode');
-                if (sel) {
-                    sel.addEventListener('change', function () { rowUpdate(tr); });
+            document.querySelectorAll('.rb-gb-row').forEach(function (row) {
+                var sel = row.querySelector('.rb-gb-mode');
+                function sync() {
+                    if (!sel) return;
+                    row.classList.toggle('is-closed', sel.value !== 'interval');
                 }
-                rowUpdate(tr);
+                if (sel) sel.addEventListener('change', sync);
+                sync();
             });
         })();
         </script>

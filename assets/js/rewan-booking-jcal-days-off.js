@@ -84,7 +84,9 @@
                 '</div>'
         );
 
-        $('.jcal_year').text(opt.day.getFullYear());
+        if (opt.ind === 0) {
+            $('.jcal_year').text(opt.day.getFullYear());
+        }
 
         $target.find('.jCal .left').bind('click', $.extend({}, opt), function (e) {
             if ($('.jCalMask', e.data._target).length > 0) {

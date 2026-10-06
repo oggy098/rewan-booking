@@ -2,7 +2,7 @@
 
 Eigenes WordPress-Buchungssystem für den Barbershop. Kunden buchen auf der Website Dienstleistung, Mitarbeiter und Uhrzeit. Der Salon verwaltet Termine im WordPress-Admin, im dunklen Gold-Look der Seite.
 
-**Version:** 1.3.0 · **Lizenz:** GPL-2.0 · **Shortcode:** `[rewan_booking_form]`
+**Version:** 1.3.17 · **Lizenz:** GPL-2.0 · **Shortcode:** `[rewan_booking_form]`
 
 Repository: [github.com/oggy098/rewan-booking](https://github.com/oggy098/rewan-booking)
 
@@ -13,7 +13,7 @@ Repository: [github.com/oggy098/rewan-booking](https://github.com/oggy098/rewan-
 - Buchungsformular auf der Website, dunkel mit Gold
 - Freie Zeiten alle 30 Minuten, passend zur Dauer der Dienstleistung
 - E-Mail an Kunde, Mitarbeiter und eine Benachrichtigungsadresse
-- Admin ohne Bookly: Dashboard, Kalender, Buchungen, Öffnungszeiten, Sperrzeit, Ferien, Dienstleistungen, Mitarbeiter
+- Admin ohne Bookly: Dashboard, Kalender, Buchungen, Öffnungszeiten, Sperrzeit, Ferien, Dienstleistungen, Mitarbeiter, E-Mails, Einstellungen
 - Update über GitHub, ohne bestehende Buchungen zu löschen
 
 Bookly wird nicht mehr geladen. Das Plugin kann allein laufen.
@@ -26,7 +26,8 @@ Bookly wird nicht mehr geladen. Das Plugin kann allein laufen.
 | --- | --- |
 | Heute | Dashboard, Kalender, Buchungen |
 | Zeiten | Öffnungszeiten, Sperrzeit, Ferien |
-| Angebot | Dienstleistungen, Mitarbeiter |
+| Angebot | Dienstleistungen, Mitarbeiter, E-Mails |
+| System | Einstellungen |
 
 **Öffnungszeiten** sind der Rahmen: pro Wochentag geöffnet oder zu, von und bis.
 
@@ -39,9 +40,10 @@ Bookly wird nicht mehr geladen. Das Plugin kann allein laufen.
 1. Ordner `rewan-booking` nach `wp-content/plugins/` kopieren.
 2. Plugin **Rewan Booking** aktivieren. Tabellen werden angelegt, vorhandene Einträge bleiben.
 3. Eine Seite mit dem Shortcode `[rewan_booking_form]` anlegen.
-4. Öffnungszeiten, Dienstleistungen, Mitarbeiter und die Benachrichtigungs-E-Mail pflegen.
+4. Öffnungszeiten, Dienstleistungen, Mitarbeiter und unter **E-Mails** den Shop-Text sowie die Bestätigung mit Musterdaten pflegen.
+5. Unter **Einstellungen** das Hostpoint-Postfach eintragen (Absender und Passwort, Haken „Über Hostpoint senden“) und eine Testmail schicken. Server ist `asmtp.mail.hostpoint.ch`, Port 587, STARTTLS.
 
-Voraussetzung: WordPress mit PHP und eine funktionierende `wp_mail`-Einrichtung, wenn E-Mails rausgehen sollen.
+Voraussetzung: WordPress mit PHP. Für den Posteingang statt Spam ein Postfach der eigenen Domain bei Hostpoint, plus DKIM im Control Panel.
 
 ---
 
@@ -53,7 +55,7 @@ Buchungen, Dienstleistungen, Mitarbeiter, Zeiten und Einstellungen liegen in der
 2. Nach `main` pushen.
 3. In WordPress unter **Dashboard → Aktualisierungen** prüfen. WordPress übernimmt die neue Version und lässt die Datenbankeinträge stehen.
 
-Ist das Repo öffentlich, braucht es keinen GitHub-Token. Ist es privat, im Plugin-Dashboard einen Token mit Leserecht auf dieses Repo speichern.
+Ist das Repo öffentlich, braucht es keinen GitHub-Token. Ist es privat, unter **Einstellungen** einen Token mit Leserecht auf dieses Repo speichern.
 
 Die Version **1.3.0** einmal per Datei-Upload auf die Website legen, damit die Update-Funktion dort ankommt. Danach reichen Push und die höhere Versionsnummer.
 
@@ -67,7 +69,8 @@ rewan-booking/
 ├── includes/
 │   ├── class-rewan-booking-activator.php   # Tabellen, Update ohne Datenverlust
 │   ├── class-rewan-booking-admin.php       # Admin-Seiten
-│   ├── class-rewan-booking-frontend.php    # Formular, Slots, E-Mails
+│   ├── class-rewan-booking-frontend.php    # Formular und Slots
+│   ├── class-rewan-booking-mail.php        # Bestätigungsmails und Vorschau
 │   ├── class-rewan-booking-schedule.php    # Öffnung und wirksame Arbeitszeit
 │   ├── class-rewan-booking-updater.php     # Update von GitHub main
 │   └── rewan-booking-calendar-bookly.php   # Ferien-Kalender, ohne Bookly-Plugin
